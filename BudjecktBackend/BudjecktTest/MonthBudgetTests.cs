@@ -230,6 +230,40 @@ public class MonthBudgetTests
     }
 
     [TestMethod]
+    public void ConstructeurComplet_RevenueNaN_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            new MonthBudget("Janvier", float.NaN, Array.Empty<Tuple<int, string, float>>(), Enumerable.Empty<Facture>()));
+    }
+
+    [TestMethod]
+    public void ConstructeurComplet_RevenueInfini_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            new MonthBudget("Janvier", float.PositiveInfinity, Array.Empty<Tuple<int, string, float>>(), Enumerable.Empty<Facture>()));
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            new MonthBudget("Janvier", float.NegativeInfinity, Array.Empty<Tuple<int, string, float>>(), Enumerable.Empty<Facture>()));
+    }
+
+    [TestMethod]
+    public void ConstructeurComplet_RevenueNégatifAutorisé_EstAccepté()
+    {
+        var mois = new MonthBudget("Janvier", -50f, Array.Empty<Tuple<int, string, float>>(), Enumerable.Empty<Facture>());
+
+        Assert.AreEqual(-50f, mois.Revenue);
+        Assert.AreEqual(-50f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void ConstructeurComplet_FactureRéférençantCatégorieInconnue_LèveArgumentException()
+    {
+        var categories = new[] { new Tuple<int, string, float>(1, "Loyer", 0f) };
+        var factures = new[] { new Facture(1, 99, 10f, new DateTime(2026, 1, 3)) };
+
+        Assert.ThrowsExactly<ArgumentException>(() => new MonthBudget("Janvier", 100f, categories, factures));
+    }
+
+    [TestMethod]
     public void AjouterCatégorie_SurMoisSansCatégorie_RepartDeLIdUn()
     {
         var mois = new MonthBudget("Janvier", 0f, Array.Empty<Tuple<int, string, float>>(), Enumerable.Empty<Facture>());

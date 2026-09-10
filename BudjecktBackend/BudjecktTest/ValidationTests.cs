@@ -78,6 +78,27 @@ public class ValidationTests
     }
 
     [TestMethod]
+    public void VerifierRevenueFini_RevenueNaN_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierRevenueFini(float.NaN));
+    }
+
+    [TestMethod]
+    public void VerifierRevenueFini_RevenueInfini_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierRevenueFini(float.PositiveInfinity));
+        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierRevenueFini(float.NegativeInfinity));
+    }
+
+    [TestMethod]
+    public void VerifierRevenueFini_RevenueFini_NeLèveRien()
+    {
+        Validation.VerifierRevenueFini(0f);
+        Validation.VerifierRevenueFini(-100f);
+        Validation.VerifierRevenueFini(1200.5f);
+    }
+
+    [TestMethod]
     public void VerifierCategorieExiste_IdInconnu_LèveArgumentException()
     {
         Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierCategorieExiste(99, new[] { 1, 2, 3 }));

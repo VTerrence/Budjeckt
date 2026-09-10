@@ -22,6 +22,7 @@ public class MonthBudget
     /// <summary>
     /// Catégories de dépense sous forme de triplet (id auto-incrémenté, nom, dépense faite).
     /// La dépense faite est recalculée à partir des factures (source unique de vérité).
+    /// Le getter renvoie une copie : les mutations externes du tableau retourné n'affectent pas le mois.
     /// </summary>
     public Tuple<int, string, float>[] ExpenseCategories => _expenseCategories.ToArray();
 
@@ -31,7 +32,7 @@ public class MonthBudget
     /// <summary>Total des dépenses du mois.</summary>
     public float TotalExpenses => _totalExpenses;
 
-    /// <summary>Reste du budget (revenue - total des dépenses).</summary>
+    /// <summary>Reste du budget (revenue - total des dépenses), potentiellement négatif si le budget est dépassé.</summary>
     public float BudgetRemaining => _budgetRemaining;
 
     /// <summary>
@@ -53,17 +54,27 @@ public class MonthBudget
     /// <param name="nom">Nom du mois.</param>
     /// <param name="revenue">Budget du mois.</param>
     /// <param name="categories">Catégories de dépense (la dépense faite fournie est ignorée et recalculée).</param>
-    /// <param name="factures">Factures du mois.</param>
-    /// <exception cref="ArgumentException">Si le nom du mois est vide.</exception>
+    /// <param name="factures">Factures du mois, chacune référençant une catégorie existante.</param>
+    /// <exception cref="ArgumentException">Si le nom du mois est vide, si le revenue n'est pas
+    /// un nombre fini, ou si une facture référence une catégorie inconnue.</exception>
     public MonthBudget(string nom, float revenue, Tuple<int, string, float>[] categories, IEnumerable<Facture> factures)
     {
         ArgumentNullException.ThrowIfNull(categories);
         ArgumentNullException.ThrowIfNull(factures);
         Validation.VerifierNomNonVide(nom);
+        Validation.VerifierRevenueFini(revenue);
         _nom = nom;
         _revenue = revenue;
         _expenseCategories = categories.ToArray();
         _factures = new List<Facture>(factures);
+
+        // Une facture référençant une catégorie inconnue serait silencieusement exclue du recalcul
+        // des dépenses par catégorie (filtrée par IdCategorie), donc de la dépense totale.
+        foreach (Facture facture in _factures)
+        {
+            Validation.VerifierCategorieExiste(facture.IdCategorie, _expenseCategories.Select(categorie => categorie.Item1));
+        }
+
         RecalculerTotaux();
     }
 
@@ -104,6 +115,8 @@ public class MonthBudget
 
     /// <summary>
     /// Ajoute une facture à une catégorie de dépense (par id) en précisant sa date.
+    /// L'id de la facture vaut l'id maximum existant + 1 (1 si aucune facture) : les ids
+    /// supprimés ou absents après chargement JSON ne sont jamais réutilisés.
     /// </summary>
     /// <param name="idCategorie">Identifiant de la catégorie.</param>
     /// <param name="montant">Montant de la facture, strictement positif.</param>

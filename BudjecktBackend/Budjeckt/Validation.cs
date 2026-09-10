@@ -51,6 +51,20 @@ public static class Validation
     }
 
     /// <summary>
+    /// Vérifie que le revenue est un nombre fini (ni NaN, ni infini).
+    /// Un revenue NaN ou infini corromprait le reste du budget et bloquerait la sauvegarde JSON.
+    /// </summary>
+    /// <param name="revenue">Revenue à vérifier.</param>
+    /// <exception cref="ArgumentException">Si le revenue est NaN ou infini.</exception>
+    public static void VerifierRevenueFini(float revenue)
+    {
+        if (float.IsNaN(revenue) || float.IsInfinity(revenue))
+        {
+            throw new ArgumentException("Le revenue doit être un nombre fini.", nameof(revenue));
+        }
+    }
+
+    /// <summary>
     /// Vérifie que l'identifiant d'une catégorie existe.
     /// </summary>
     /// <param name="idCategorie">Identifiant de catégorie à vérifier.</param>

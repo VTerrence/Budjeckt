@@ -42,7 +42,10 @@ public class Budjeckt
     /// <summary>Nom de l'année (ex. « 2026 »).</summary>
     public string Annee => _annee;
 
-    /// <summary>Tableau des 12 mois de l'année.</summary>
+    /// <summary>
+    /// Tableau des mois de l'année. Le setter remplace intégralement le tableau
+    /// (utilisé notamment pour injecter les mois chargés depuis le JSON).
+    /// </summary>
     public MonthBudget[] Months
     {
         get => _mois;
@@ -150,6 +153,8 @@ public class Budjeckt
                 }
             }
 
+            // Un revenue infini (ex. « 1e39 » désérialisé en float) corromprait le reste du budget
+            // et bloquerait toute sauvegarde JSON ultérieure.
             if (float.IsNaN(mois.Revenue) || float.IsInfinity(mois.Revenue))
             {
                 throw new InvalidDataException($"Le mois \"{mois.Nom}\" a un revenue invalide (NaN ou infini).");
