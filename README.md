@@ -6,7 +6,7 @@ Application de bureau Windows (WPF, .NET 10) de suivi de dépenses quotidiennes,
 
 Permettre à l'utilisateur de consigner et suivre ses dépenses quotidiennes :
 
-- **Ajout d'une dépense** (facture) via un formulaire : montant, catégorie, date (par défaut la date du jour).
+- **Ajout d'une dépense** (facture) via un formulaire : montant, catégorie, date et heure optionnelles. Date par défaut : aujourd'hui si la facture tombe dans le mois affiché, sinon le 1er du mois.
 - **Affichage de l'historique** des dépenses enregistrées.
 - **Indicateur financier** : total des dépenses et reste du budget, recalculés dynamiquement à chaque ajout/suppression.
 - **Suppression** définitive d'une dépense.
@@ -28,7 +28,7 @@ BudjecktBackend/
 │   ├── Facture.cs                   #   dépense individuelle (immuable)
 │   ├── Validation.cs                #   règles métier (noms, montants, ids)
 │   └── *Json.cs                     #   DTOs internes de sérialisation JSON
-├── BudjecktTest/                    # tests MSTest net10.0 (74 tests, parallélisés)
+├── BudjecktTest/                    # tests MSTest net10.0 (118 tests, parallélisés)
 └── BudjecktFrontend/                # application WPF net10.0-windows
 ```
 
@@ -47,7 +47,7 @@ Commandes à exécuter depuis la racine du repo (`C:\Users\Terrence\Desktop\Budj
 dotnet build BudjecktBackend/Budjeckt.slnx
 ```
 
-**Exécution des tests (74 tests, MSTest) :**
+**Exécution des tests (118 tests, MSTest) :**
 
 ```
 dotnet test BudjecktBackend/Budjeckt.slnx
@@ -81,7 +81,8 @@ Fichier texte UTF-8, désérialisé avec `System.Text.Json`. Structure (les autr
         { "Id": 7, "Nom": "Loisirs" }
       ],
       "Factures": [
-        { "Id": 1, "IdCategorie": 1, "Montant": 750, "Date": "2026-01-03T00:00:00" }
+        { "Id": 1, "IdCategorie": 1, "Montant": 750, "Date": "2026-01-03T00:00:00", "Heure": "12:30:00" },
+        { "Id": 2, "IdCategorie": 2, "Montant": 45, "Date": "2026-01-05T00:00:00" }
       ]
     }
   ]
@@ -90,15 +91,18 @@ Fichier texte UTF-8, désérialisé avec `System.Text.Json`. Structure (les autr
 
 Notes sur le format :
 
-- Le fichier doit contenir **exactement 12 mois**, chacun avec un nom et au moins une catégorie.
+- Le fichier doit contenir **exactement 12 mois**, chacun avec un nom connu (français) et au moins une catégorie.
 - La **dépense faite par catégorie n'est pas stockée** : elle est recalculée depuis les factures au chargement (voir « Décisions d'architecture »).
 - Les montants et le revenue doivent être des nombres finis strictement positifs (NaN et ±∞ sont rejetés au chargement) ; chaque facture doit référencer une catégorie existante.
+- Le champ `Heure` est **optionnel** (format `"HH:mm:ss"`), absent si l'heure n'a pas été renseignée ; une heure hors `[00:00, 24:00)` est rejetée.
+- La date d'une facture doit être plausible (année 1900-2100) et **appartenir au mois affiché** ; les ids de catégories et de factures doivent être positifs et uniques au sein d'un mois.
+- Un fichier de plus de 10 Mo est rejeté au chargement.
 - Si `depenses.json` n'existe pas au lancement, l'application démarre avec les valeurs par défaut (12 mois, 7 catégories par défaut, budget 0).
 
 ## Décisions d'architecture
 
 - **Les factures sont la source unique de vérité** : la dépense faite par catégorie, le total et le reste du budget ne sont jamais stockés — ils sont systématiquement recalculés depuis les factures (`MonthBudget.RecalculerTotaux`), y compris après un chargement JSON. La valeur de dépense fournie dans le JSON est ignorée.
 - **Ids auto-incrémentés « max + 1 »** : aucun compteur n'est persisté ; le prochain id de catégorie ou de facture est dérivé des ids existants (max + 1). Les ids supprimés ne sont donc jamais réutilisés, même après rechargement.
-- **Validation stricte des entrées** (classe `Validation`) : noms non vides et uniques, montants strictement positifs. La vérification couvre explicitement `NaN` et ±∞ (IEEE 754 : `NaN <= 0` est faux, et un montant comme `1e39` déborde silencieusement vers +∞ en `float`).
+- **Validation stricte des entrées** (classe `Validation`) : noms non vides et uniques, montants strictement positifs, heure dans `[00:00, 24:00)` si renseignée, dates bornées 1900-2100 et appartenant au mois affiché. La vérification couvre explicitement `NaN` et ±∞ (IEEE 754 : `NaN <= 0` est faux, et un montant comme `1e39` déborde silencieusement vers +∞ en `float`) ainsi que le débordement de la somme des factures d'une catégorie.
 - **DTOs JSON internes séparés du modèle** : `BudjecktJson`, `MonthJson`, `CategoryJson`, `FactureJson` sont des classes internes dédiées à la sérialisation ; le modèle métier (`Budjeckt`, `MonthBudget`, `Facture`) reste indépendant du format de fichier.
 - **Un fichier par classe** pour le backend, aligné sur la conception lv0/lv1 (`AnalyseProjetBudjeckt.md`).

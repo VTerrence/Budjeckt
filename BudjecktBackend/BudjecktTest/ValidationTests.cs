@@ -133,4 +133,94 @@ public class ValidationTests
     {
         Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierFactureExiste(1, Enumerable.Empty<int>()));
     }
+
+    [TestMethod]
+    public void VerifierHeureValide_Null_NeLèveRien()
+    {
+        Validation.VerifierHeureValide(null);
+    }
+
+    [TestMethod]
+    public void VerifierHeureValide_HeureValide_NeLèveRien()
+    {
+        Validation.VerifierHeureValide(TimeSpan.Zero);
+        Validation.VerifierHeureValide(new TimeSpan(23, 59, 59));
+    }
+
+    [TestMethod]
+    public void VerifierHeureValide_HeureTropGrande_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierHeureValide(new TimeSpan(24, 0, 0)));
+    }
+
+    [TestMethod]
+    public void VerifierHeureValide_HeureNégative_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierHeureValide(new TimeSpan(-1, 0, 0)));
+    }
+
+    [TestMethod]
+    public void VerifierDatePlausible_AnnéeExtrême_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierDatePlausible(new DateTime(1899, 1, 1)));
+        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierDatePlausible(new DateTime(2101, 1, 1)));
+    }
+
+    [TestMethod]
+    public void VerifierDatePlausible_AnnéeNormale_NeLèveRien()
+    {
+        Validation.VerifierDatePlausible(new DateTime(2026, 1, 15));
+    }
+
+    [TestMethod]
+    public void VerifierDatePlausible_AnnéeBorneMinimale_NeLèveRien()
+    {
+        Validation.VerifierDatePlausible(new DateTime(1900, 1, 1));
+    }
+
+    [TestMethod]
+    public void VerifierDatePlausible_AnnéeBorneMaximale_NeLèveRien()
+    {
+        Validation.VerifierDatePlausible(new DateTime(2100, 12, 31));
+    }
+
+    [TestMethod]
+    public void VerifierDateDansLeMois_DateDansLeMois_NeLèveRien()
+    {
+        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 15), "Janvier");
+    }
+
+    [TestMethod]
+    public void VerifierDateDansLeMois_NomInsensibleÀLaCasse_NeLèveRien()
+    {
+        Validation.VerifierDateDansLeMois(new DateTime(2026, 2, 5), "février");
+        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), "JANVIER");
+    }
+
+    [TestMethod]
+    public void VerifierDateDansLeMois_NomAvecEspaces_NeLèveRien()
+    {
+        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), " Janvier ");
+    }
+
+    [TestMethod]
+    public void VerifierDateDansLeMois_NomNull_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), null!));
+    }
+
+    [TestMethod]
+    public void VerifierDateDansLeMois_DateHorsMois_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            Validation.VerifierDateDansLeMois(new DateTime(2026, 2, 5), "Janvier"));
+    }
+
+    [TestMethod]
+    public void VerifierDateDansLeMois_MoisInconnu_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), "Trece"));
+    }
 }

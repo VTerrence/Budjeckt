@@ -8,6 +8,12 @@ public class MonthBudgetTests
         "Loyer", "Eau", "Electricite", "Chauffage", "Alimentation", "Transports", "Loisirs"
     };
 
+    private static readonly string[] NomsMois =
+    {
+        "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+        "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
+    };
+
     [TestMethod]
     public void ConstructeurParDefaut_CréeLesSeptCatégoriesParDéfaut()
     {
@@ -96,9 +102,9 @@ public class MonthBudgetTests
     }
 
     [TestMethod]
-    public void AjouterFacture_SansDate_UtiliseLaDateDuJour()
+    public void AjouterFacture_SansDate_MoisCourant_UtiliseAujourdHui()
     {
-        var mois = new MonthBudget("Janvier");
+        var mois = new MonthBudget(NomsMois[DateTime.Today.Month - 1]);
 
         mois.AjouterFacture(4, 12.5f);
 
@@ -111,10 +117,22 @@ public class MonthBudgetTests
     }
 
     [TestMethod]
+    public void AjouterFacture_SansDate_AutreMois_UtiliseLePremierDuMois()
+    {
+        int indexAutreMois = (DateTime.Today.Month % 12) + 1;
+        var mois = new MonthBudget(NomsMois[indexAutreMois - 1]);
+
+        mois.AjouterFacture(4, 12.5f);
+
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(new DateTime(DateTime.Today.Year, indexAutreMois, 1), mois.Factures[0].Date);
+    }
+
+    [TestMethod]
     public void AjouterFacture_AvecDate_GardeLaDateEtIncémenteLId()
     {
         var mois = new MonthBudget("Janvier");
-        DateTime date = new(2026, 2, 1);
+        DateTime date = new(2026, 1, 15);
 
         mois.AjouterFacture(4, 12.5f);
         mois.AjouterFacture(5, 60f, date);
@@ -122,6 +140,94 @@ public class MonthBudgetTests
         Assert.HasCount(2, mois.Factures);
         Assert.AreEqual(2, mois.Factures[1].Id);
         Assert.AreEqual(date, mois.Factures[1].Date);
+    }
+
+    [TestMethod]
+    public void AjouterFacture_AvecHeure_GardeLHeure()
+    {
+        var mois = new MonthBudget("Janvier");
+        var heure = new TimeSpan(14, 30, 0);
+
+        mois.AjouterFacture(4, 12.5f, new DateTime(2026, 1, 3), heure);
+
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(heure, mois.Factures[0].Heure);
+    }
+
+    [TestMethod]
+    public void AjouterFacture_SansHeure_HeureNulle()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        mois.AjouterFacture(4, 12.5f, new DateTime(2026, 1, 3));
+
+        Assert.IsNull(mois.Factures[0].Heure);
+    }
+
+    [TestMethod]
+    public void AjouterFacture_HeureInvalide_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            mois.AjouterFacture(4, 10f, new DateTime(2026, 1, 3), new TimeSpan(24, 0, 0)));
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            mois.AjouterFacture(4, 10f, new DateTime(2026, 1, 3), new TimeSpan(-1, 0, 0)));
+    }
+
+    [TestMethod]
+    public void AjouterFacture_DateHorsMois_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.AjouterFacture(4, 10f, new DateTime(2026, 2, 5)));
+    }
+
+    [TestMethod]
+    public void AjouterFacture_DateImplausible_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.AjouterFacture(4, 10f, new DateTime(9999, 1, 5)));
+    }
+
+    [TestMethod]
+    public void AjouterFacture_MoisNomInconnu_SansDate_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Trece");
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.AjouterFacture(4, 10f));
+    }
+
+    [TestMethod]
+    public void AjouterFacture_MoisNomInconnu_AvecDate_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Trece");
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.AjouterFacture(4, 10f, new DateTime(2026, 1, 5)));
+    }
+
+    [TestMethod]
+    public void AjouterFacture_DateNulleAvecHeure_UtiliseLaDateParDéfautEtGardeLHeure()
+    {
+        var mois = new MonthBudget(NomsMois[DateTime.Today.Month - 1]);
+        var heure = new TimeSpan(14, 0, 0);
+
+        mois.AjouterFacture(4, 10f, null, heure);
+
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(DateTime.Today, mois.Factures[0].Date);
+        Assert.AreEqual(heure, mois.Factures[0].Heure);
+    }
+
+    [TestMethod]
+    public void AjouterFacture_DateAvecComposanteHoraire_EstNormaliséeSansHeureDeJour()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        mois.AjouterFacture(4, 10f, new DateTime(2026, 1, 10, 15, 30, 0));
+
+        Assert.AreEqual(new DateTime(2026, 1, 10), mois.Factures[0].Date);
     }
 
     [TestMethod]

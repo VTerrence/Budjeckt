@@ -65,6 +65,98 @@ public static class Validation
     }
 
     /// <summary>
+    /// Vérifie que l'heure est soit absente (<c>null</c>), soit comprise dans l'intervalle [00:00, 24:00).
+    /// </summary>
+    /// <param name="heure">Heure à vérifier.</param>
+    /// <exception cref="ArgumentException">Si l'heure est négative ou supérieure ou égale à 24 h.</exception>
+    public static void VerifierHeureValide(TimeSpan? heure)
+    {
+        if (!HeureEstValide(heure))
+        {
+            throw new ArgumentException("L'heure doit être comprise entre 00:00 et 23:59:59.", nameof(heure));
+        }
+    }
+
+    /// <summary>
+    /// Indique si l'heure (éventuellement absente) est valide : <c>null</c> ou dans [00:00, 24:00).
+    /// Fait office de source unique des bornes, réutilisée par <c>Budjeckt.ValiderJson</c>.
+    /// </summary>
+    /// <param name="heure">Heure à vérifier.</param>
+    /// <returns><c>true</c> si valide (ou absente), sinon <c>false</c>.</returns>
+    internal static bool HeureEstValide(TimeSpan? heure)
+    {
+        return heure is null || (heure >= TimeSpan.Zero && heure < TimeSpan.FromDays(1));
+    }
+
+    /// <summary>
+    /// Vérifie que la date est plausible (année entre 1900 et 2100 inclus).
+    /// Les bornes bornent les erreurs de saisie grossières (ex. une date 9999) tout en
+    /// couvrant largement les budgets réels.
+    /// </summary>
+    /// <param name="date">Date à vérifier.</param>
+    /// <exception cref="ArgumentException">Si l'année de la date est hors de l'intervalle.</exception>
+    public static void VerifierDatePlausible(DateTime date)
+    {
+        if (!DateEstPlausible(date))
+        {
+            throw new ArgumentException("La date doit avoir une année comprise entre 1900 et 2100.", nameof(date));
+        }
+    }
+
+    /// <summary>
+    /// Indique si la date est plausible (année entre 1900 et 2100 inclus).
+    /// Fait office de source unique des bornes, réutilisée par <c>Budjeckt.ValiderJson</c>.
+    /// </summary>
+    /// <param name="date">Date à vérifier.</param>
+    /// <returns><c>true</c> si plausible, sinon <c>false</c>.</returns>
+    internal static bool DateEstPlausible(DateTime date)
+    {
+        return date.Year is >= 1900 and <= 2100;
+    }
+
+    /// <summary>
+    /// Vérifie que la date appartient au mois dont le nom (ex. « Janvier ») est fourni.
+    /// </summary>
+    /// <param name="date">Date à vérifier.</param>
+    /// <param name="nomMois">Nom du mois d'appartenance attendu.</param>
+    /// <exception cref="ArgumentException">Si le nom du mois est inconnu ou si la date n'appartient pas au mois.</exception>
+    public static void VerifierDateDansLeMois(DateTime date, string nomMois)
+    {
+        int? index = IndexDuMois(nomMois);
+        if (index is null)
+        {
+            throw new ArgumentException($"Le mois \"{nomMois}\" est inconnu.", nameof(nomMois));
+        }
+
+        if (date.Month != index.Value)
+        {
+            throw new ArgumentException($"La date doit appartenir au mois de {nomMois}.", nameof(date));
+        }
+    }
+
+    /// <summary>
+    /// Retourne l'index (1 à 12) du mois français correspondant au nom, ou <c>null</c> si le nom est inconnu.
+    /// Utile pour contrôler qu'une date tombe bien sur le mois affiché.
+    /// </summary>
+    /// <param name="nom">Nom du mois (ex. « Janvier », « Février »).</param>
+    /// <returns>Index du mois (1 = Janvier) ou <c>null</c> si inconnu.</returns>
+    internal static int? IndexDuMois(string? nom)
+    {
+        if (nom is null)
+        {
+            return null;
+        }
+
+        return NomsMois.TryGetValue(nom.Trim(), out int index) ? index : null;
+    }
+
+    private static readonly Dictionary<string, int> NomsMois = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Janvier"] = 1, ["Février"] = 2, ["Mars"] = 3, ["Avril"] = 4, ["Mai"] = 5, ["Juin"] = 6,
+        ["Juillet"] = 7, ["Août"] = 8, ["Septembre"] = 9, ["Octobre"] = 10, ["Novembre"] = 11, ["Décembre"] = 12
+    };
+
+    /// <summary>
     /// Vérifie que l'identifiant d'une catégorie existe.
     /// </summary>
     /// <param name="idCategorie">Identifiant de catégorie à vérifier.</param>

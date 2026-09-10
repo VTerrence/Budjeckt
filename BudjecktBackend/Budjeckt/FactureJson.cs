@@ -16,4 +16,7 @@ internal class FactureJson
 
     /// <summary>Date de la dépense (ISO-8601).</summary>
     public DateTime Date { get; set; }
+
+    /// <summary>Heure de la dépense (optionnelle).</summary>
+    public TimeSpan? Heure { get; set; }
 }

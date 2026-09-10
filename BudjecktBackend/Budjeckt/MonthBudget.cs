@@ -26,8 +26,8 @@ public class MonthBudget
     /// </summary>
     public Tuple<int, string, float>[] ExpenseCategories => _expenseCategories.ToArray();
 
-    /// <summary>Factures (dépenses individuelles) du mois.</summary>
-    public IReadOnlyList<Facture> Factures => _factures;
+    /// <summary>Factures (dépenses individuelles) du mois, en lecture seule.</summary>
+    public IReadOnlyList<Facture> Factures => _factures.AsReadOnly();
 
     /// <summary>Total des dépenses du mois.</summary>
     public float TotalExpenses => _totalExpenses;
@@ -56,7 +56,9 @@ public class MonthBudget
     /// <param name="categories">Catégories de dépense (la dépense faite fournie est ignorée et recalculée).</param>
     /// <param name="factures">Factures du mois, chacune référençant une catégorie existante.</param>
     /// <exception cref="ArgumentException">Si le nom du mois est vide, si le revenue n'est pas
-    /// un nombre fini, ou si une facture référence une catégorie inconnue.</exception>
+    /// un nombre fini, si une facture référence une catégorie inconnue ou n'appartient pas au mois.</exception>
+    /// <exception cref="InvalidDataException">Si la somme des factures d'une catégorie ou du mois
+    /// déborde de la plage flottante.</exception>
     public MonthBudget(string nom, float revenue, Tuple<int, string, float>[] categories, IEnumerable<Facture> factures)
     {
         ArgumentNullException.ThrowIfNull(categories);
@@ -70,9 +72,11 @@ public class MonthBudget
 
         // Une facture référençant une catégorie inconnue serait silencieusement exclue du recalcul
         // des dépenses par catégorie (filtrée par IdCategorie), donc de la dépense totale.
+        // Une facture datée d'un autre mois fausserait le tri et l'affichage du mois.
         foreach (Facture facture in _factures)
         {
             Validation.VerifierCategorieExiste(facture.IdCategorie, _expenseCategories.Select(categorie => categorie.Item1));
+            Validation.VerifierDateDansLeMois(facture.Date, _nom);
         }
 
         RecalculerTotaux();
@@ -103,36 +107,95 @@ public class MonthBudget
     }
 
     /// <summary>
-    /// Ajoute une facture datée d'aujourd'hui à une catégorie de dépense (par id).
+    /// Ajoute une facture à une catégorie de dépense (par id) sans préciser la date :
+    /// la date par défaut est aujourd'hui si aujourd'hui appartient au mois, sinon le 1er jour du mois.
     /// </summary>
     /// <param name="idCategorie">Identifiant de la catégorie.</param>
     /// <param name="montant">Montant de la facture, strictement positif.</param>
-    /// <exception cref="ArgumentException">Si la catégorie n'existe pas ou si le montant n'est pas strictement positif.</exception>
+    /// <exception cref="ArgumentException">Si la catégorie n'existe pas, si le montant n'est pas
+    /// strictement positif, si l'heure est invalide, si la date n'appartient pas au mois ou est
+    /// implausible (1900-2100), ou si le nom du mois est inconnu.</exception>
+    /// <exception cref="InvalidDataException">Si la somme des factures déborde de la plage flottante.</exception>
     public void AjouterFacture(int idCategorie, float montant)
     {
-        AjouterFacture(idCategorie, montant, DateTime.Today);
+        AjouterFacture(idCategorie, montant, null, null);
     }
 
     /// <summary>
-    /// Ajoute une facture à une catégorie de dépense (par id) en précisant sa date.
+    /// Ajoute une facture à une catégorie de dépense (par id) en précisant sa date. La date
+    /// doit appartenir au mois affiché (ex. « Janvier »). L'heure reste optionnelle (absente).
     /// L'id de la facture vaut l'id maximum existant + 1 (1 si aucune facture) : les ids
     /// supprimés ou absents après chargement JSON ne sont jamais réutilisés.
     /// </summary>
     /// <param name="idCategorie">Identifiant de la catégorie.</param>
     /// <param name="montant">Montant de la facture, strictement positif.</param>
-    /// <param name="date">Date de la facture.</param>
-    /// <exception cref="ArgumentException">Si la catégorie n'existe pas ou si le montant n'est pas strictement positif.</exception>
+    /// <param name="date">Date de la facture (doit appartenir au mois).</param>
+    /// <exception cref="ArgumentException">Si la catégorie n'existe pas, si le montant n'est pas
+    /// strictement positif, ou si la date n'appartient pas au mois ou est implausible (1900-2100).</exception>
+    /// <exception cref="InvalidDataException">Si la somme des factures déborde de la plage flottante.</exception>
     public void AjouterFacture(int idCategorie, float montant, DateTime date)
+    {
+        AjouterFacture(idCategorie, montant, date, null);
+    }
+
+    /// <summary>
+    /// Ajoute une facture à une catégorie de dépense (par id) avec date et heure optionnelles.
+    /// La date par défaut est aujourd'hui (si elle appartient au mois) ou le 1er du mois ; une date
+    /// fournie doit appartenir au mois affiché. L'id vaut l'id maximum existant + 1 (1 si aucune
+    /// facture) : les ids supprimés ou absents après chargement JSON ne sont jamais réutilisés.
+    /// </summary>
+    /// <param name="idCategorie">Identifiant de la catégorie.</param>
+    /// <param name="montant">Montant de la facture, strictement positif.</param>
+    /// <param name="date">Date de la facture, optionnelle.</param>
+    /// <param name="heure">Heure de la facture, optionnelle.</param>
+    /// <exception cref="ArgumentException">Si la catégorie n'existe pas, si le montant n'est pas
+    /// strictement positif, si l'heure est invalide, si la date n'appartient pas au mois ou est
+    /// implausible (1900-2100), ou si le nom du mois est inconnu.</exception>
+    /// <exception cref="InvalidDataException">Si la somme des factures déborde de la plage flottante.</exception>
+    public void AjouterFacture(int idCategorie, float montant, DateTime? date, TimeSpan? heure)
     {
         Validation.VerifierMontantPositif(montant);
         Validation.VerifierCategorieExiste(idCategorie, _expenseCategories.Select(categorie => categorie.Item1));
+        Validation.VerifierHeureValide(heure);
+
+        DateTime dateResolue = ResoudreDate(date);
 
         int prochainId = _factures.Count == 0
             ? 1
             : _factures.Max(facture => facture.Id) + 1;
 
-        _factures.Add(new Facture(prochainId, idCategorie, montant, date));
+        _factures.Add(new Facture(prochainId, idCategorie, montant, dateResolue, heure));
         RecalculerTotaux();
+    }
+
+    /// <summary>
+    /// Résout la date effective d'une facture : la date fournie doit appartenir au mois affiché ;
+    /// sans date, retourne aujourd'hui si aujourd'hui appartient au mois, sinon le 1er jour du mois.
+    /// </summary>
+    /// <param name="date">Date fournie, éventuellement absente.</param>
+    /// <returns>Date effective, normalisée sans composante horaire.</returns>
+    /// <exception cref="ArgumentException">Si la date fournie n'appartient pas au mois affiché ou est implausible.</exception>
+    private DateTime ResoudreDate(DateTime? date)
+    {
+        if (date is { } valeur)
+        {
+            Validation.VerifierDatePlausible(valeur);
+            Validation.VerifierDateDansLeMois(valeur, _nom);
+            return valeur.Date;
+        }
+
+        // Sans date : aujourd'hui si aujourd'hui appartient au mois affiché, sinon le 1er du mois.
+        // Importer une dépense dans un mois passé/futur avec la date du jour serait trompeur.
+        DateTime aujourdhui = DateTime.Today;
+        int? indexMois = Validation.IndexDuMois(_nom);
+        if (indexMois is null)
+        {
+            throw new ArgumentException($"Le mois \"{_nom}\" est inconnu : impossible d'attribuer une date par défaut.", nameof(_nom));
+        }
+
+        return indexMois == aujourdhui.Month
+            ? aujourdhui
+            : new DateTime(aujourdhui.Year, indexMois.Value, 1);
     }
 
     /// <summary>
@@ -158,16 +221,44 @@ public class MonthBudget
             .Select(categorie => new Tuple<int, string, float>(
                 categorie.Item1,
                 categorie.Item2,
-                _factures.Where(facture => facture.IdCategorie == categorie.Item1).Sum(facture => facture.Montant)))
+                CalculerDepenseCategorie(categorie.Item1)))
             .ToArray();
+    }
+
+    /// <summary>
+    /// Calcule la dépense d'une catégorie en sommant ses factures, en refusant le débordement
+    /// flottant (deux montants proches de float.Max déborderaient silencieusement vers +infini,
+    /// corrompant les totaux et bloquant la sauvegarde JSON).
+    /// </summary>
+    /// <param name="idCategorie">Identifiant de la catégorie.</param>
+    /// <returns>Dépense cumulée de la catégorie.</returns>
+    /// <exception cref="InvalidDataException">Si la somme déborde de la plage float.</exception>
+    private float CalculerDepenseCategorie(int idCategorie)
+    {
+        float depense = _factures
+            .Where(facture => facture.IdCategorie == idCategorie)
+            .Sum(facture => facture.Montant);
+
+        if (float.IsInfinity(depense))
+        {
+            throw new InvalidDataException($"Les montants des factures de la catégorie d'id {idCategorie} débordent de la plage flottante.");
+        }
+
+        return depense;
     }
 
     /// <summary>
     /// Calcule et modifie le total des dépenses du mois.
     /// </summary>
+    /// <exception cref="InvalidDataException">Si la somme des catégories déborde de la plage float.</exception>
     private void RecalculerTotal()
     {
         _totalExpenses = _expenseCategories.Sum(categorie => categorie.Item3);
+
+        if (float.IsInfinity(_totalExpenses))
+        {
+            throw new InvalidDataException("Le total des dépenses du mois déborde de la plage flottante.");
+        }
     }
 
     /// <summary>

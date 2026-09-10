@@ -92,8 +92,22 @@ public class Budjeckt
     /// </summary>
     private static string? LireFichier(string chemin)
     {
-        return File.Exists(chemin) ? File.ReadAllText(chemin) : null;
+        if (!File.Exists(chemin))
+        {
+            return null;
+        }
+
+        // Borner la taille lue éviter qu'un fichier corrompu ou gonflé ne provoque un
+        // OutOfMemoryException non gérée lors du chargement.
+        if (new FileInfo(chemin).Length > TailleMaximaleFichier)
+        {
+            throw new InvalidDataException($"Le fichier JSON est trop volumineux (limite {TailleMaximaleFichier / (1024 * 1024)} Mo).");
+        }
+
+        return File.ReadAllText(chemin);
     }
+
+    private const long TailleMaximaleFichier = 10 * 1024 * 1024;
 
     /// <summary>
     /// Désérialise le contenu JSON vers le DTO de l'année.
@@ -112,9 +126,10 @@ public class Budjeckt
     }
 
     /// <summary>
-    /// Vérifie que la structure du JSON est correcte : année présente, exactement 12 mois,
-    /// chaque mois nommé avec des catégories nommées, aucun élément nul, montants finis
-    /// et strictement positifs, et chaque facture liée à une catégorie existante.
+    /// Vérifie que la structure du JSON est correcte : année présente, exactement 12 mois dont
+    /// le nom est connu, chaque mois avec des catégories nommées à ids uniques, aucun élément nul,
+    /// montants finis et strictement positifs, heure optionnelle dans [00:00, 24:00), date plausible
+    /// appartenant au mois affiché, et chaque facture liée à une catégorie existante à ids uniques.
     /// </summary>
     private static void ValiderJson(BudjecktJson donnees)
     {
@@ -128,6 +143,7 @@ public class Budjeckt
             throw new InvalidDataException("Le fichier JSON doit contenir exactement 12 mois.");
         }
 
+        HashSet<string> nomsMoisVus = new(StringComparer.OrdinalIgnoreCase);
         foreach (MonthJson mois in donnees.Mois)
         {
             if (mois is null)
@@ -140,16 +156,37 @@ public class Budjeckt
                 throw new InvalidDataException("Un mois du fichier JSON n'a pas de nom.");
             }
 
+            // Deux mois portant le même nom (ex. deux « Janvier ») casseraient l'affichage et le tri.
+            if (!nomsMoisVus.Add(mois.Nom))
+            {
+                throw new InvalidDataException($"Le nom de mois \"{mois.Nom}\" est présent plusieurs fois dans le fichier JSON.");
+            }
+
+            int? indexMois = Validation.IndexDuMois(mois.Nom);
+            if (indexMois is null)
+            {
+                throw new InvalidDataException($"Le mois \"{mois.Nom}\" du fichier JSON est inconnu.");
+            }
+
             if (mois.Categories is null || mois.Categories.Count == 0)
             {
                 throw new InvalidDataException($"Le mois \"{mois.Nom}\" n'a pas de catégories.");
             }
 
+            HashSet<int> idsCategorie = new();
             foreach (CategoryJson categorie in mois.Categories)
             {
                 if (categorie is null || string.IsNullOrWhiteSpace(categorie.Nom))
                 {
                     throw new InvalidDataException($"Le mois \"{mois.Nom}\" a une catégorie sans nom.");
+                }
+
+                // Des ids négatifs, nuls ou dupliqués casseraient l'auto-incrément
+                // (max + 1) et la suppression par id (First) au sein du mois.
+                if (categorie.Id < 1 || !idsCategorie.Add(categorie.Id))
+                {
+                    throw new InvalidDataException(
+                        $"Le mois \"{mois.Nom}\" a des catégories avec des ids négatifs, nuls ou dupliqués.");
                 }
             }
 
@@ -160,11 +197,20 @@ public class Budjeckt
                 throw new InvalidDataException($"Le mois \"{mois.Nom}\" a un revenue invalide (NaN ou infini).");
             }
 
+            HashSet<int> idsFacture = new();
             foreach (FactureJson facture in mois.Factures ?? Enumerable.Empty<FactureJson>())
             {
                 if (facture is null)
                 {
                     throw new InvalidDataException($"Le mois \"{mois.Nom}\" a une facture nulle.");
+                }
+
+                // Comme pour les catégories : un id négatif/nul ou dupliqué casserait
+                // l'auto-incrément et la suppression par id au sein du mois.
+                if (facture.Id < 1 || !idsFacture.Add(facture.Id))
+                {
+                    throw new InvalidDataException(
+                        $"Le mois \"{mois.Nom}\" a des factures avec des ids négatifs, nuls ou dupliqués.");
                 }
 
                 // NaN et infini échappent à la comparaison "<= 0" (IEEE 754) ; un montant infini
@@ -180,24 +226,48 @@ public class Budjeckt
                     throw new InvalidDataException(
                         $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" référence une catégorie inconnue.");
                 }
+
+                // L'heure est optionnelle mais doit rester dans [00:00, 24:00) si renseignée.
+                if (!Validation.HeureEstValide(facture.Heure))
+                {
+                    throw new InvalidDataException(
+                        $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a une heure invalide.");
+                }
+
+                // La date doit rester plausible (armure contre les dates 9999) et tomber sur le mois affiché.
+                if (!Validation.DateEstPlausible(facture.Date))
+                {
+                    throw new InvalidDataException(
+                        $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a une date hors de l'intervalle plausible (1900-2100).");
+                }
+
+                if (facture.Date.Month != indexMois.Value)
+                {
+                    throw new InvalidDataException(
+                        $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a une date qui n'appartient pas à ce mois.");
+                }
             }
         }
     }
 
     /// <summary>
     /// Applique les données du DTO validé au modèle de l'année.
+    /// Les deux champs ne sont assignés qu'après construction complète des mois :
+    /// un échec (ex. débordement float) laisse alors l'objet dans son état précédent.
     /// </summary>
     private void AppliquerModele(BudjecktJson donnees)
     {
-        _annee = donnees.Annee!;
-        _mois = donnees.Mois!
+        MonthBudget[] nouveauxMois = donnees.Mois!
             .Select(mois => new MonthBudget(
                 mois.Nom!,
                 mois.Revenue,
                 mois.Categories!.Select(categorie => new Tuple<int, string, float>(categorie.Id, categorie.Nom!, 0f)).ToArray(),
                 (mois.Factures ?? Enumerable.Empty<FactureJson>())
-                    .Select(facture => new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date))))
+                    .Select(facture => new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, facture.Heure))))
             .ToArray();
+
+        _annee = donnees.Annee!;
+        _mois = nouveauxMois;
     }
 
     /// <summary>
@@ -230,7 +300,8 @@ public class Budjeckt
                             Id = facture.Id,
                             IdCategorie = facture.IdCategorie,
                             Montant = facture.Montant,
-                            Date = facture.Date
+                            Date = facture.Date,
+                            Heure = facture.Heure
                         })
                         .ToList()
                 })

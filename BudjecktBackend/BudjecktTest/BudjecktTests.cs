@@ -199,6 +199,102 @@ public class BudjecktTests
     }
 
     [TestMethod]
+    public void ChargerJson_MoisInconnu_LèveInvalidDataException()
+    {
+        VerifierChargementInvalide(CreerJsonAnnée(nomsMois: new[] { "Trece" }.Concat(NomsMois.Skip(1)).ToArray()));
+    }
+
+    [TestMethod]
+    public void ChargerJson_MoisNomInsensibleÀLaCasse_AcceptéLeFichier()
+    {
+        string json = CreerJsonAnnée(nomsMois: NomsMois.Select(nom => nom.ToLowerInvariant()).ToArray());
+
+        VerifierChargement(json, budjeckt =>
+        {
+            Assert.HasCount(12, budjeckt.Months);
+            Assert.AreEqual("janvier", budjeckt.Months[0].Nom, "Le nom est chargé tel quel, la validation tolère la casse");
+        });
+    }
+
+    [TestMethod]
+    public void ChargerJson_MoisDoublon_LèveInvalidDataException()
+    {
+        // Deux « Janvier » : la validation doit rejeter le doublon (la casse est ignorée).
+        VerifierChargementInvalide(CreerJsonAnnée(nomsMois: new[] { "Janvier", "janvier" }.Concat(NomsMois.Skip(2)).ToArray()));
+    }
+
+    [TestMethod]
+    public void ChargerJson_FactureHeureInvalide_LèveInvalidDataException()
+    {
+        // Une heure de 24 h ou plus sort de [00:00, 24:00) ; elle est rejetée à la validation.
+        VerifierChargementInvalide(CreerJsonAnnée(
+            factures: _ => "{\"Id\":1,\"IdCategorie\":1,\"Montant\":50,\"Date\":\"2026-01-10T00:00:00\",\"Heure\":\"24:00:00\"}"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_FactureDateExtrême_LèveInvalidDataException()
+    {
+        VerifierChargementInvalide(CreerJsonAnnée(
+            factures: _ => "{\"Id\":1,\"IdCategorie\":1,\"Montant\":50,\"Date\":\"9999-01-10T00:00:00\"}"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_FactureDateHorsMois_LèveInvalidDataException()
+    {
+        // Mois « Janvier » avec une facture datée de février.
+        VerifierChargementInvalide(CreerJsonAnnée(
+            factures: _ => "{\"Id\":1,\"IdCategorie\":1,\"Montant\":50,\"Date\":\"2026-02-10T00:00:00\"}"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_FactureIdDupliqué_LèveInvalidDataException()
+    {
+        VerifierChargementInvalide(CreerJsonAnnée(
+            factures: _ =>
+                "{\"Id\":1,\"IdCategorie\":1,\"Montant\":50,\"Date\":\"2026-01-10T00:00:00\"}," +
+                "{\"Id\":1,\"IdCategorie\":1,\"Montant\":20,\"Date\":\"2026-01-11T00:00:00\"}"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_CatégorieIdDupliqué_LèveInvalidDataException()
+    {
+        VerifierChargementInvalide(CreerJsonAnnée(
+            categories: _ => "[{\"Id\":1,\"Nom\":\"Loyer\"},{\"Id\":1,\"Nom\":\"Eau\"}]"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_MontantsProvoquantUnDébordement_LèveInvalidDataException()
+    {
+        // Deux montants proches de float.Max débordent vers +infini à la sommation des catégories.
+        VerifierChargementInvalide(CreerJsonAnnée(
+            factures: _ =>
+                "{\"Id\":1,\"IdCategorie\":1,\"Montant\":3e38,\"Date\":\"2026-01-10T00:00:00\"}," +
+                "{\"Id\":2,\"IdCategorie\":1,\"Montant\":3e38,\"Date\":\"2026-01-11T00:00:00\"}"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_FichierTropVolumineux_LèveInvalidDataException()
+    {
+        string chemin = CreerCheminTemporaire();
+        try
+        {
+            // Création rapide d'un fichier de 11 Mo (sans contenu cochable au préalable);
+            // le garde-fou de taille doit rejeter le chargement avant même la lecture JSON.
+            using (FileStream flux = File.Create(chemin))
+            {
+                flux.SetLength(11 * 1024 * 1024);
+            }
+
+            Bud budjeckt = new();
+            Assert.ThrowsExactly<InvalidDataException>(() => budjeckt.ChargerJson(chemin));
+        }
+        finally
+        {
+            SupprimerFichier(chemin);
+        }
+    }
+
+    [TestMethod]
     public void ChargerJson_FactureMontantInfini_LèveInvalidDataException()
     {
         // "1e39" déborde silencieusement vers +infini lors de la désérialisation float ;
@@ -335,6 +431,34 @@ public class BudjecktTests
             Assert.HasCount(1, janvier.Factures);
             Assert.AreEqual(100f, janvier.TotalExpenses, 0.001f);
             Assert.AreEqual(1100f, janvier.BudgetRemaining, 0.001f);
+        }
+        finally
+        {
+            SupprimerFichier(chemin);
+        }
+    }
+
+    [TestMethod]
+    public void SauvegarderPuisCharger_ConserveLHeureEtLesFacturesSansHeure()
+    {
+        string chemin = CreerCheminTemporaire();
+        try
+        {
+            Bud budjeckt = new("2026");
+            budjeckt.Months = CreerDouzeMois();
+            budjeckt.Months[0].AjouterFacture(4, 25.5f, new DateTime(2026, 1, 10), new TimeSpan(14, 30, 0));
+            budjeckt.Months[0].AjouterFacture(5, 60f, new DateTime(2026, 1, 5));
+            budjeckt.SauvegarderJson(chemin);
+
+            Bud charge = new();
+            charge.ChargerJson(chemin);
+
+            MonthBudget janvier = charge.Months[0];
+            Assert.HasCount(2, janvier.Factures);
+
+            Assert.AreEqual(new TimeSpan(14, 30, 0), janvier.Factures[0].Heure);
+            Assert.IsNull(janvier.Factures[1].Heure);
+            Assert.AreEqual(85.5f, janvier.TotalExpenses, 0.001f);
         }
         finally
         {

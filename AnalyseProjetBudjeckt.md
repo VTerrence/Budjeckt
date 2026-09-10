@@ -111,13 +111,15 @@ Classe MonthBudjet     lv1 Elle permettra de contenir les catégories de dépens
 Classe outils pour vérifier que les conditions sont respecter lv1 (évidemment renvoyer une erreur avec le message si ça ne va pas)
 
 
+Test
+
+Les jeux de test se font dès que tu as finit une méthode et une classe sur celle ci pour vérifier. TU créera et codera les jeux de test
+
 
 Le front end tu le fait beau comme tu veux mais il doit respecter le cahier des charges
 Et je te dirais après quoi changer ajouter
 
-Le front end récuperera directeur ce dont il a besoin avec les get des classes, pour les afficher.
+Le front end récuperera directement ce dont il a besoin avec les get des classes, pour les afficher.
 
 
-Test
 
-Les jeux de test se font dès que tu as finit une méthode et une classe sur celle ci pour vérifier. TU créera et codera les jeux de test
