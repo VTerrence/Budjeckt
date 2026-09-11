@@ -11,6 +11,7 @@ Permettre à l'utilisateur de consigner et suivre ses dépenses quotidiennes :
 - **Indicateur financier** : total des dépenses et reste du budget, recalculés dynamiquement à chaque ajout/suppression.
 - **Suppression** définitive d'une dépense.
 - **Filtrage** par catégorie de dépense.
+- **Catégories personnalisables** : le dépensé cumulé par catégorie du mois affiché est affiché dans le groupbox « Catégories » ; une catégorie ajoutée s'applique aux 12 mois de l'année (un mois qui la possède déjà est ignoré).
 - **Multi-années** : les données sont découpées par année (`depenses-2026.json`, `depenses-2027.json`…). Toutes les années sont navigables, lisibles et modifiables ; des années peuvent être supprimées définitivement via un panneau de sélection multiple. L'année courante est créée automatiquement au lancement et l'année suivante peut être préparée d'avance via le bouton `＋`.
 - **Persistance** automatique dans le fichier de l'année affichée après chaque ajout, suppression ou changement de budget, et chargement au démarrage. L'ancien fichier unique `depenses.json` est migré automatiquement vers le format par année au premier lancement.
 
@@ -35,6 +36,7 @@ Budjeckt/
     ├── MainViewModel.cs             # vue modèle MVVM (CommunityToolkit.Mvvm 8.4.0)
     ├── AnneeSelectionnable.cs       # ligne sélectionnable des années à supprimer
     ├── ApercuFacture.cs             # vue d'une facture pour l'historique
+    ├── ApercuCategorie.cs           # ligne du récapitulatif « Dépenses par catégorie »
     ├── Formatage.cs                 # formatage d'affichage des montants
     └── MainWindow.xaml(.cs)         # fenêtre principale WPF
 ```
@@ -46,6 +48,7 @@ Budjeckt/
 - **Suppression d'années** : bouton « Supprimer… » ouvrant un panneau de sélection multiple ; une ou plusieurs années peuvent être cochées puis supprimées définitivement après confirmation. L'année courante supprimée est automatiquement recréée avec les valeurs par défaut.
 - **Ajout d'une dépense** dans le mois affiché : montant (nombre fini strictement positif), catégorie, date, heure optionnelle au format « HH:mm ». Le bouton reste désactivé tant que la saisie est invalide (montant ≦ 0 ou non numérique, heure hors `[00:00, 24:00)`, date hors du mois et de l'année).
 - **Budget mensuel modifiable** (revenue, nombre fini, négatif admis) recalculé immédiatement avec le reste.
+- **Gestion des catégories** : groupbox « Catégories » avec champ de saisie (désactivé si vide) et bouton « + Ajouter » pour ajouter une catégorie à l'année affichée ; récapitulatif « Dépenses par catégorie » trié par montant décroissant (puis par nom), recalculé à chaque mutation.
 - **Filtre par catégorie**, **tri décroissant** (date, puis heure, puis id) et **suppression** de la dépense sélectionnée.
 - **Barre de synthèse** : total affiché (après filtre), total du mois et reste du budget (vert / rouge).
 - **Gestion des erreurs** : messages français non techniques ; un fichier de données corrompu est mis de côté (`depenses.json.corrompu-*.bak`) au lieu d'être écrasé.

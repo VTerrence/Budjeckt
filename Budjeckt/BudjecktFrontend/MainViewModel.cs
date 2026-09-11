@@ -47,6 +47,9 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Factures affichées dans l'historique (triées de la plus récente à la plus ancienne).</summary>
     public ObservableCollection<ApercuFacture> FacturesAffichees { get; } = new();
 
+    /// <summary>Dépenses cumulées par catégorie du mois affiché (triées par montant décroissant).</summary>
+    public ObservableCollection<ApercuCategorie> TotauxParCategorie { get; } = new();
+
     /// <summary>Catégories du mois affiché, pour le formulaire d'ajout.</summary>
     public ObservableCollection<string> CategoriesAjout { get; } = new();
 
@@ -97,9 +100,17 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _messageErreur = string.Empty;
 
+    /// <summary>Message de succès d'une action récente (ex. ajout de catégorie), en vert.</summary>
+    [ObservableProperty]
+    private string _messageSucces = string.Empty;
+
     /// <summary>Budget mensuel saisi avant enregistrement.</summary>
     [ObservableProperty]
     private string _revenueSaisi = string.Empty;
+
+    /// <summary>Nom de la catégorie à ajouter pour toute l'année (formulaire).</summary>
+    [ObservableProperty]
+    private string _nouvelleCategorieSaisie = string.Empty;
 
     /// <summary>Index de l'option de filtre sélectionnée (0 = toutes les catégories).</summary>
     [ObservableProperty]
@@ -682,6 +693,64 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private bool PeutAjouterCategorie()
+    {
+        return !string.IsNullOrWhiteSpace(NouvelleCategorieSaisie);
+    }
+
+    /// <summary>
+    /// Ajoute une catégorie de dépense aux 12 mois de l'année affichée puis sauvegarde.
+    /// Un mois qui possède déjà le nom (comparaison insensible à la casse) est ignoré :
+    /// l'opération est idempotente même si les mois ont des jeux de catégories différents.
+    /// La vérification d'unicité est faite sur les 12 mois avant la première mutation.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(PeutAjouterCategorie))]
+    private void AjouterCategorie()
+    {
+        string nom = NouvelleCategorieSaisie.Trim();
+
+        // Pré-validation sur les 12 mois avant toute mutation : une exception en cours de
+        // boucle ne laisserait sinon qu'une partie de l'année modifiée en mémoire, jamais
+        // sauvegardée et susceptible d'être persistée par la prochaine action.
+        bool[] moisAAjouter = _budjeckt.Months
+            .Select(mois => mois.ExpenseCategories.Any(
+                categorie => string.Equals(categorie.Item2, nom, StringComparison.OrdinalIgnoreCase))
+                == false)
+            .ToArray();
+
+        try
+        {
+            int nbModifies = 0;
+            for (int i = 0; i < _budjeckt.Months.Length; i++)
+            {
+                if (moisAAjouter[i])
+                {
+                    _budjeckt.Months[i].AjouterCategorie(nom);
+                    nbModifies++;
+                }
+            }
+
+            if (Sauvegarder())
+            {
+                MessageSucces = nbModifies == 0
+                    ? $"La catégorie « {nom} » existe déjà pour tous les mois de l'année."
+                    : $"Catégorie « {nom} » ajoutée pour toute l'année.";
+            }
+
+            NouvelleCategorieSaisie = string.Empty;
+            ActualiserListesCategories(false);
+            ActualiserSynthese();
+        }
+        catch (ArgumentException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+        catch (InvalidDataException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+    }
+
     /// <summary>
     /// Reconstruit l'état du mois affiché : catégories, filtre, date par défaut, budget
     /// puis liste et synthèse. Appelé à chaque changement de mois.
@@ -689,24 +758,8 @@ public partial class MainViewModel : ObservableObject
     private void ActualiserEtatsMois()
     {
         MonthBudget mois = MoisCourant;
-        _categoriesMois = mois.ExpenseCategories;
+        ActualiserListesCategories(true);
 
-        CategoriesAjout.Clear();
-        foreach (Tuple<int, string, float> categorie in _categoriesMois)
-        {
-            CategoriesAjout.Add(categorie.Item2);
-        }
-
-        IndexCategorieAjout = 0;
-
-        CategoriesFiltre.Clear();
-        CategoriesFiltre.Add("Toutes les catégories");
-        foreach (Tuple<int, string, float> categorie in _categoriesMois)
-        {
-            CategoriesFiltre.Add(categorie.Item2);
-        }
-
-        IndexCategorieFiltre = 0;
         CategoriesDisponibles = _categoriesMois.Length > 0;
 
         DateSaisie = DateParDefaut();
@@ -715,6 +768,48 @@ public partial class MainViewModel : ObservableObject
         RevenueSaisi = mois.Revenue.ToString(CultureInfo.CurrentCulture);
         ActualiserSynthese();
         ActualiserListe();
+    }
+
+    /// <summary>
+    /// Reconstruit les listes de catégories du formulaire et du filtre depuis le mois affiché.
+    /// Les indices de sélection sont soit réinitialisés (changement de mois), soit conservés
+    /// si la sélection existe encore (ex. après l'ajout d'une catégorie).
+    /// </summary>
+    /// <param name="reinitialiserIndices"><c>true</c> pour repartir sur le premier élément.</param>
+    private void ActualiserListesCategories(bool reinitialiserIndices)
+    {
+        _categoriesMois = MoisCourant.ExpenseCategories;
+
+        CategoriesAjout.Clear();
+        foreach (Tuple<int, string, float> categorie in _categoriesMois)
+        {
+            CategoriesAjout.Add(categorie.Item2);
+        }
+
+        CategoriesFiltre.Clear();
+        CategoriesFiltre.Add("Toutes les catégories");
+        foreach (Tuple<int, string, float> categorie in _categoriesMois)
+        {
+            CategoriesFiltre.Add(categorie.Item2);
+        }
+
+        if (reinitialiserIndices)
+        {
+            IndexCategorieAjout = 0;
+            IndexCategorieFiltre = 0;
+        }
+        else
+        {
+            if (IndexCategorieAjout >= CategoriesAjout.Count)
+            {
+                IndexCategorieAjout = CategoriesAjout.Count - 1;
+            }
+
+            if (IndexCategorieFiltre >= CategoriesFiltre.Count)
+            {
+                IndexCategorieFiltre = CategoriesFiltre.Count - 1;
+            }
+        }
     }
 
     /// <summary>
@@ -756,6 +851,14 @@ public partial class MainViewModel : ObservableObject
         TotalMoisTexte = Formatage.Montant(mois.TotalExpenses);
         ResteTexte = Formatage.Montant(mois.BudgetRemaining);
         RestePositif = mois.BudgetRemaining >= 0f;
+
+        TotauxParCategorie.Clear();
+        foreach (Tuple<int, string, float> categorie in mois.ExpenseCategories
+                     .OrderByDescending(categorie => categorie.Item3)
+                     .ThenBy(categorie => categorie.Item2, StringComparer.CurrentCulture))
+        {
+            TotauxParCategorie.Add(new ApercuCategorie(categorie.Item2, categorie.Item3));
+        }
     }
 
     /// <summary>
@@ -786,6 +889,12 @@ public partial class MainViewModel : ObservableObject
     {
         MettreAJourErreurSaisie();
         AjouterFactureCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Répercute une saisie de catégorie sur la disponibilité de l'ajout.</summary>
+    partial void OnNouvelleCategorieSaisieChanged(string value)
+    {
+        AjouterCategorieCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Met à jour le message d'erreur pendant la saisie de l'heure.</summary>
@@ -893,17 +1002,20 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>
     /// Sauvegarde l'année dans le fichier JSON ; en cas d'échec, affiche un message
-    /// générique, sans exposer de détail technique interne (AGENTS.md).
+    /// générique (sans exposer de détail technique interne) et retourne <c>false</c>.
     /// </summary>
-    private void Sauvegarder()
+    /// <returns><c>true</c> si la sauvegarde a abouti, sinon <c>false</c>.</returns>
+    private bool Sauvegarder()
     {
         try
         {
             _budjeckt.SauvegarderJson(_cheminFichier);
+            return true;
         }
         catch (Exception)
         {
             AfficherErreurAction("Impossible de sauvegarder les dépenses. Vérifiez les autorisations du dossier de l'application.");
+            return false;
         }
     }
 }

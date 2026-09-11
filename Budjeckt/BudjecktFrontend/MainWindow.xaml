@@ -105,7 +105,8 @@
             </Grid.ColumnDefinitions>
 
             <!-- Zone de saisie + budget -->
-            <StackPanel Grid.Column="0" Margin="0,0,12,0">
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Margin="0,0,12,0">
+                <StackPanel>
                 <GroupBox Header="Nouvelle dépense" Padding="10">
                     <StackPanel>
                         <TextBlock Text="Montant" Margin="0,0,0,3"/>
@@ -161,7 +162,44 @@
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>
-            </StackPanel>
+
+                <GroupBox Header="Catégories" Padding="10" Margin="0,10,0,0">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding NouvelleCategorieSaisie, UpdateSourceTrigger=PropertyChanged}"
+                                     AutomationProperties.Name="Nouvelle catégorie"
+                                     ToolTip="Nom de la catégorie à ajouter pour toute l'année"
+                                     MaxLength="100"
+                                     MinWidth="150"/>
+                            <Button Content="+ Ajouter"
+                                    Command="{Binding AjouterCategorieCommand}"
+                                    AutomationProperties.Name="Ajouter une catégorie"
+                                    Margin="6,0,0,0" Height="26" Padding="10,0"/>
+                        </StackPanel>
+                        <Separator Margin="0,10,0,8"/>
+                        <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding TotauxParCategorie}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Nom}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding MontantTexte}" FontWeight="SemiBold"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <TextBlock Text="{Binding MessageSucces}"
+                                   Foreground="#2E7D32" TextWrapping="Wrap"
+                                   Margin="0,8,0,0"/>
+                    </StackPanel>
+                </GroupBox>
+                </StackPanel>
+            </ScrollViewer>
 
             <!-- Zone d'affichage de l'historique -->
             <Grid Grid.Column="1">

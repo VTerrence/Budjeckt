@@ -123,3 +123,20 @@ Le front end récuperera directement ce dont il a besoin avec les get des classe
 
 
 
+le total du budgjet par catégorie
+
+pouvoir ajouter des catégories.
+
+pouvoir valider une dépense en appuyant sur entrer
+
+pouvoir sélectioner plusieur dépense d'un coup pour pouvoir les supprimer avec des racourcits ergonomique par exemple shift + clique, ou selection de souris
+pouvoir sélectioner plusieur années d'un coup pour pouvoir les supprimer avec un bouton tout sélectionner
+
+le reste total par semaine (1 mois = 4,35 semaines), sur chaque semaines sa dit combien il reste, si je n'ai pas dépenser tout sur la semaines précédente c'est remis automatiquement sur le budgjet de la semaines d'après, donc forcément on utilise la date systeme.
+
+possibilité de faire une cagnote indépendante de mon reste du mois /* revoir 
+
+/*
+pouvoir mettre et retirer des factures par défaut dans une catégories (qui se répetera sur le prochain mois et se remettra dans le défaut tant qu'il n'a pas été retirer) donc évidement il ne s'applique pas sur un mois précédent si il n'avais pas encore été fait, et sur le mois prochain uniquement si il est en cour
+*/ à revoir
+
