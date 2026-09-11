@@ -4,14 +4,16 @@ using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Windows;
 using Bud = global::Budjeckt.Budjeckt;
 
 namespace BudjecktFrontend;
 
 /// <summary>
-/// Vue principale de l'application : charge l'année Budjeckt depuis le fichier JSON,
-/// navigue entre les 12 mois, gère l'ajout/suppression de factures, le budget mensuel
-/// et le filtrage par catégorie. Toute mutation est immédiatement sauvegardée.
+/// Vue principale de l'application : gère le dossier de données multi-années (un fichier
+/// JSON par année, migration de l'ancien fichier unique), navigue entre les années et les
+/// 12 mois, gère l'ajout/suppression de factures, le budget mensuel et le filtrage par
+/// catégorie. Toute mutation est immédiatement sauvegardée.
 /// </summary>
 public partial class MainViewModel : ObservableObject
 {
@@ -21,8 +23,10 @@ public partial class MainViewModel : ObservableObject
     // exhaustive pour la lecture du code, mais l'XML doc de l'assembly ne contiendra
     // pas ces résumés sur les membres générés.
 
-    private readonly Bud _budjeckt;
-    private readonly string _cheminFichier;
+    private Bud _budjeckt = new();
+    private string _cheminFichier = string.Empty;
+    private readonly string _repertoireDonnees;
+    private readonly Func<List<int>, bool>? _confirmerSuppression;
     private Tuple<int, string, float>[] _categoriesMois = Array.Empty<Tuple<int, string, float>>();
 
     /// <summary>
@@ -33,6 +37,12 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>Noms des 12 mois de l'année (ordre de navigation), issus du backend.</summary>
     public ObservableCollection<string> NomsMois { get; } = new(Bud.NomsDesMois);
+
+    /// <summary>Années disponibles du dossier de données, triées de la plus récente à la plus ancienne.</summary>
+    public ObservableCollection<int> Annees { get; } = new();
+
+    /// <summary>Cases de la liste multi-sélection du panneau de suppression des années.</summary>
+    public ObservableCollection<AnneeSelectionnable> AnneesSuppression { get; } = new();
 
     /// <summary>Factures affichées dans l'historique (triées de la plus récente à la plus ancienne).</summary>
     public ObservableCollection<ApercuFacture> FacturesAffichees { get; } = new();
@@ -47,9 +57,25 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private int _indexMoisSelectionne;
 
+    /// <summary>Index de l'année sélectionnée dans <see cref="Annees"/>.</summary>
+    [ObservableProperty]
+    private int _indexAnneeSelectionnee;
+
+    /// <summary>Borne inférieure du sélecteur de date (1er janvier de l'année affichée).</summary>
+    [ObservableProperty]
+    private DateTime _dateMin;
+
+    /// <summary>Borne supérieure du sélecteur de date (31 décembre de l'année affichée).</summary>
+    [ObservableProperty]
+    private DateTime _dateMax;
+
     /// <summary>Libellé d'année (ex. « Année 2026 »).</summary>
     [ObservableProperty]
-    private string _nomAnnee;
+    private string _nomAnnee = string.Empty;
+
+    /// <summary><c>true</c> si le panneau de suppression des années est affiché.</summary>
+    [ObservableProperty]
+    private bool _panneauSuppressionVisible;
 
     /// <summary>Montant saisi dans le formulaire d'ajout.</summary>
     [ObservableProperty]
@@ -104,36 +130,143 @@ public partial class MainViewModel : ObservableObject
     private bool _categoriesDisponibles;
 
     /// <summary>
-    /// Construit la vue : charge l'année depuis le fichier JSON (défauts si absent,
-    /// message si corrompu) puis sélectionne le mois courant.
+    /// Construit la vue : migre l'ancien fichier unique vers le format par année, détecte
+    /// les années disponibles, crée l'année courante si elle manque, puis ouvre l'année
+    /// la plus récente (ou l'année courante) et sélectionne le mois courant.
     /// </summary>
-    public MainViewModel()
+    /// <param name="confirmerSuppression">
+    /// Fonction de confirmation de la suppression d'années (ex. une MessageBox « Oui/Non »).
+    /// Si <c>null</c>, aucune suppression n'est confirmée : la commande de suppression refuse
+    /// alors d'agir (échec sûr), ce qui permet de tester le flux sans interface.
+    /// </param>
+    public MainViewModel(Func<List<int>, bool>? confirmerSuppression = null)
     {
-        _budjeckt = new Bud();
-        _cheminFichier = Path.Combine(
+        _confirmerSuppression = confirmerSuppression;
+        _repertoireDonnees = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Budjeckt",
-            "depenses.json");
+            "Budjeckt");
+        Directory.CreateDirectory(_repertoireDonnees);
+
+        MigrerFichierHeriteSiNecessaire();
+
+        int anneeCourante = ArchivesBudjeckt.AnneeCourante();
+        RafraichirAnneesDepuisDisque();
+
+        // Auto-création de l'année courante au lancement (défauts sauvegardés sur disque
+        // si elle est absente) pour que la navigation proposer toujours l'année en cours.
+        if (!Annees.Contains(anneeCourante))
+        {
+            try
+            {
+                ArchivesBudjeckt.OuvrirOuCreerAnnee(_repertoireDonnees, anneeCourante);
+            }
+            catch (InvalidDataException)
+            {
+                // Fichier de l'année courante corrompu : il est mis de côté puis régénéré
+                // (le contenu était déjà illisible, rien de récupérable n'est perdu).
+                MettreDeCoteFichierCorrompu(Path.Combine(_repertoireDonnees, Bud.NomFichierPourAnnee(anneeCourante)));
+                ArchivesBudjeckt.OuvrirOuCreerAnnee(_repertoireDonnees, anneeCourante);
+            }
+
+            AjouterAnneeCreee(anneeCourante);
+        }
+
+        int anneeCible = Annees.Contains(anneeCourante) ? anneeCourante : Annees[0];
+        IndexAnneeSelectionnee = Annees.IndexOf(anneeCible);
+        // Appel explicite si la cible est déjà l'index par défaut (0) : le hook de
+        // changement d'année ne serait sinon pas déclenché au démarrage.
+        if (IndexAnneeSelectionnee == 0)
+        {
+            ChangerAnnee(anneeCible);
+        }
+    }
+
+    /// <summary>
+    /// Migre l'ancien fichier <c>depenses.json</c> vers <c>depenses-&lt;année&gt;.json</c>.
+    /// Un fichier hérité illisible est mis de côté (renommé) au lieu d'être ignoré en silence.
+    /// </summary>
+    private void MigrerFichierHeriteSiNecessaire()
+    {
+        string heritage = Path.Combine(_repertoireDonnees, Bud.NomFichierHerite);
+        if (!File.Exists(heritage))
+        {
+            return;
+        }
+
+        if (ArchivesBudjeckt.MigrerFichierHerite(_repertoireDonnees))
+        {
+            return;
+        }
+
+        MettreDeCoteFichierCorrompu(heritage);
+        _erreurAction = "Un ancien fichier de données était illisible : il a été mis de côté ";
+        MessageErreur = _erreurAction;
+    }
+
+    /// <summary>
+    /// Ouvre l'année demandée : chargement du fichier existant ou création d'une année
+    /// vierge, puis rafraîchit l'état du mois affiché. En cas de fichier corrompu, il est
+    /// mis de côté et l'année est réinitialisée (l'application démarre quand même).
+    /// </summary>
+    private void ChangerAnnee(int annee)
+    {
+        string nouveauChemin = Path.Combine(_repertoireDonnees, Bud.NomFichierPourAnnee(annee));
+
+        // Garde anti double-chargement : re-sélectionner l'année déjà affichée ne recharge pas
+        // le fichier. Le chemin (vide au départ) garantit qu'une année n'est jamais sautée au
+        // premier chargement, même si le modèle par défaut porte déjà le même nom d'année.
+        if (nouveauChemin == _cheminFichier && _budjeckt.Annee == annee.ToString())
+        {
+            return;
+        }
+
+        _cheminFichier = nouveauChemin;
 
         try
         {
-            _budjeckt.ChargerJson(_cheminFichier);
+            _budjeckt = ArchivesBudjeckt.OuvrirOuCreerAnnee(_repertoireDonnees, annee);
         }
         catch (InvalidDataException)
         {
-            // Un fichier illisible peut contenir des données récupérables : il est mis de côté
-            // (renommé) pour ne pas être écrasé par la première sauvegarde, puis des valeurs
-            // par défaut sont chargées.
             MettreDeCoteFichierCorrompu(_cheminFichier);
-            _erreurAction = "Le fichier de données était illisible ou corrompu : il a été mis de côté ";
+            _budjeckt = ArchivesBudjeckt.OuvrirOuCreerAnnee(_repertoireDonnees, annee);
+            _erreurAction = $"Le fichier de l'année {annee} était illisible : il a été mis de côté et réinitialisé.";
             MessageErreur = _erreurAction;
         }
+        catch (IOException)
+        {
+            AfficherErreurAction("Impossible d'ouvrir le dossier de données. Vérifiez les autorisations.");
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            AfficherErreurAction("Impossible d'ouvrir le dossier de données. Vérifiez les autorisations.");
+            return;
+        }
 
-        _nomAnnee = $"Année {_budjeckt.Annee}";
+        NomAnnee = $"Année {_budjeckt.Annee}";
         IndexMoisSelectionne = DateTime.Today.Month - 1;
-        // Appel explicite : en janvier (index 0 = valeur par défaut du champ), le hook de
-        // changement de mois n'est pas déclenché et la liste resterait vide au démarrage.
+        // Appel explicite : si le mois courant est déjà l'index sélectionné (donc inchangé),
+        // le hook de changement de mois n'est pas déclenché et la liste resterait vide.
         ActualiserEtatsMois();
+    }
+
+    /// <summary>
+    /// Ajoute une année dans la liste affichée en la gardant triée par ordre décroissant.
+    /// </summary>
+    private void AjouterAnneeCreee(int annee)
+    {
+        if (!Annees.Contains(annee))
+        {
+            Annees.Add(annee);
+        }
+
+        List<int> trie = Annees.OrderByDescending(a => a).ToList();
+        Annees.Clear();
+        foreach (int a in trie)
+        {
+            Annees.Add(a);
+        }
     }
 
     /// <summary>
@@ -185,6 +318,249 @@ public partial class MainViewModel : ObservableObject
     private void SuivantMois()
     {
         IndexMoisSelectionne = (IndexMoisSelectionne + 1) % NomsMois.Count;
+    }
+
+    /// <summary>
+    /// Crée (si besoin) l'année suivant l'année affichée puis bascule dessus : permet de
+    /// préparer l'année suivante avant son arrivée, sans attendre le premier lancement
+    /// de l'année concernée.
+    /// </summary>
+    [RelayCommand]
+    private void CreerAnneeSuivante()
+    {
+        if (IndexAnneeSelectionnee < 0 || IndexAnneeSelectionnee >= Annees.Count)
+        {
+            return;
+        }
+
+        int anneeSuivante = Annees[IndexAnneeSelectionnee] + 1;
+        if (!Annees.Contains(anneeSuivante))
+        {
+            try
+            {
+                ArchivesBudjeckt.OuvrirOuCreerAnnee(_repertoireDonnees, anneeSuivante);
+            }
+            catch (InvalidDataException)
+            {
+                return;
+            }
+            catch (IOException)
+            {
+                AfficherErreurAction("Impossible de sauvegarder la nouvelle année. Vérifiez les autorisations du dossier.");
+                return;
+            }
+
+            AjouterAnneeCreee(anneeSuivante);
+        }
+
+        IndexAnneeSelectionnee = Annees.IndexOf(anneeSuivante);
+    }
+
+    /// <summary>
+    /// Ouvre le panneau de multi-sélection des années à supprimer : chaque année disponible
+    /// apparaît avec une case à cocher, sans aucune modification tant que rien n'est confirmé.
+    /// </summary>
+    [RelayCommand]
+    private void OuvrirPanneauSuppression()
+    {
+        AnneesSuppression.Clear();
+        foreach (int annee in Annees)
+        {
+            AnneesSuppression.Add(new AnneeSelectionnable(annee));
+        }
+
+        PanneauSuppressionVisible = true;
+    }
+
+    /// <summary>Ferme le panneau de suppression sans toucher aux fichiers.</summary>
+    [RelayCommand]
+    private void AnnulerSuppression()
+    {
+        AnneesSuppression.Clear();
+        PanneauSuppressionVisible = false;
+    }
+
+    /// <summary>
+    /// Supprime définitivement les années cochées (toutes, y compris l'année courante), après
+    /// confirmation. Si l'année courante est supprimée, elle est recréée avec les valeurs par
+    /// défaut (il existe donc toujours au moins une année). L'affichage est repositionné sur
+    /// l'année qui survit ou, à défaut, sur la plus récente restante.
+    /// </summary>
+    [RelayCommand]
+    private void SupprimerAnnees()
+    {
+        List<int> choisies = AnneesSuppression
+            .Where(item => item.EstCochee)
+            .Select(item => item.Annee)
+            .OrderByDescending(annee => annee)
+            .ToList();
+        if (choisies.Count == 0)
+        {
+            MessageBox.Show("Sélectionnez au moins une année à supprimer.", "Budjeckt",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (!ConfirmerSuppression(choisies))
+        {
+            return;
+        }
+
+        int anneeCourante = ArchivesBudjeckt.AnneeCourante();
+        int anneeAffichee = int.TryParse(_budjeckt.Annee.Trim(), NumberStyles.Integer,
+            CultureInfo.InvariantCulture, out int entiere)
+            ? entiere
+            : -1;
+        bool affichageSupprime = anneeAffichee >= 0 && choisies.Contains(anneeAffichee);
+
+        HashSet<int> echecs = new();
+        foreach (int annee in choisies)
+        {
+            if (!ArchivesBudjeckt.SupprimerAnnee(_repertoireDonnees, annee))
+            {
+                echecs.Add(annee);
+            }
+        }
+
+        if (choisies.Contains(anneeCourante))
+        {
+            try
+            {
+                // Fichier supprimé → recréé par défaut ; fichier encore présent (échec de
+                // suppression) → simplement rechargé tel quel. Idempotent dans les deux cas.
+                ArchivesBudjeckt.OuvrirOuCreerAnnee(_repertoireDonnees, anneeCourante);
+            }
+            catch (InvalidDataException)
+            {
+                echecs.Add(anneeCourante);
+            }
+            catch (IOException)
+            {
+                echecs.Add(anneeCourante);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                echecs.Add(anneeCourante);
+            }
+        }
+
+        if (echecs.Count == choisies.Count)
+        {
+            // Aucune suppression n'a abouti : le panneau reste ouvert pour réessayer.
+            AfficherErreurAction($"Aucune année supprimée ({string.Join(", ", echecs)}). Fichier verrouillé ou permissions insuffisantes.");
+            return;
+        }
+
+        RafraichirAnneesDepuisDisque();
+        if (Annees.Count == 0)
+        {
+            // La liste est vide (la recréation de l'année courante n'a pas été vue) : on
+            // retente une fois avant d'abandonner.
+            try
+            {
+                ArchivesBudjeckt.OuvrirOuCreerAnnee(_repertoireDonnees, anneeCourante);
+            }
+            catch (InvalidDataException)
+            {
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+
+            RafraichirAnneesDepuisDisque();
+        }
+
+        if (Annees.Count == 0)
+        {
+            // Reconstitution impossible : on détache l'état en mémoire pour empêcher toute
+            // réécriture fantôme d'une année supprimée lors d'une prochaine sauvegarde.
+            _cheminFichier = string.Empty;
+            _budjeckt = new();
+            PanneauSuppressionVisible = false;
+            AnneesSuppression.Clear();
+            AfficherErreurAction("Impossible de reconstituer une année de données. Vérifiez les permissions du dossier.");
+            return;
+        }
+
+        PanneauSuppressionVisible = false;
+        AnneesSuppression.Clear();
+
+        int cible = Annees.Contains(anneeAffichee) ? anneeAffichee : Annees[0];
+        if (affichageSupprime)
+        {
+            // Le fichier de l'année affichée n'existe plus (ou vient d'être recréé) : on force
+            // le rechargement pour ne pas garder l'ancien modèle en mémoire (contourne la garde
+            // anti double-chargement de ChangerAnnee).
+            _cheminFichier = string.Empty;
+        }
+
+        int indexCible = Annees.IndexOf(cible);
+        if (IndexAnneeSelectionnee != indexCible)
+        {
+            IndexAnneeSelectionnee = indexCible;
+        }
+        else
+        {
+            ChangerAnnee(cible);
+        }
+
+        if (echecs.Count > 0)
+        {
+            string liste = string.Join(", ", echecs);
+            AfficherErreurAction($"Suppression partielle : impossible de supprimer {echecs.Count} année(s) ({liste}). Fichier verrouillé ou permissions insuffisantes.");
+        }
+        else
+        {
+            _erreurAction = string.Empty;
+            MessageErreur = $"{choisies.Count} année(s) supprimée(s).";
+        }
+    }
+
+    /// <summary>
+    /// Demande confirmation avant une suppression définitive et liste les années concernées.
+    /// Sans fonction de confirmation injectée (mode sans interface pour les tests), la
+    /// suppression est refusée : comportement « échec sûr ».
+    /// </summary>
+    /// <param name="annees">Années cochées (triées décroissant).</param>
+    /// <returns><c>true</c> si l'utilisateur confirme, sinon <c>false</c>.</returns>
+    private bool ConfirmerSuppression(List<int> annees)
+    {
+        return _confirmerSuppression?.Invoke(annees) ?? false;
+    }
+
+    /// <summary>
+    /// Reconstruit la liste des années depuis le disque (la vérité du disque devient
+    /// celle de l'UI, même en cas d'échec partiel de suppression). Un échec d'accès au
+    /// dossier laisse la liste vide à la place de remonter une exception.
+    /// </summary>
+    private void RafraichirAnneesDepuisDisque()
+    {
+        Annees.Clear();
+        try
+        {
+            foreach (int annee in ArchivesBudjeckt.AnneesExistantes(_repertoireDonnees))
+            {
+                Annees.Add(annee);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// <summary>Répercute un changement d'année sur le chargement et l'affichage.</summary>
+    partial void OnIndexAnneeSelectionneeChanged(int value)
+    {
+        if (value >= 0 && value < Annees.Count)
+        {
+            ChangerAnnee(Annees[value]);
+        }
     }
 
     private bool PeutAjouterFacture()
@@ -333,7 +709,9 @@ public partial class MainViewModel : ObservableObject
         IndexCategorieFiltre = 0;
         CategoriesDisponibles = _categoriesMois.Length > 0;
 
-        DateSaisie = DateParDefaut(IndexMoisSelectionne);
+        DateSaisie = DateParDefaut();
+        DateMin = new DateTime(mois.Annee, 1, 1);
+        DateMax = new DateTime(mois.Annee, 12, 31);
         RevenueSaisi = mois.Revenue.ToString(CultureInfo.CurrentCulture);
         ActualiserSynthese();
         ActualiserListe();
@@ -482,12 +860,15 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Indique si la date sélectionnée appartient au mois affiché. Le champ étant toujours
-    /// initialisé par <see cref="ActualiserEtatsMois"/>, une valeur absente est invalide.
+    /// Indique si la date sélectionnée appartient au mois affiché (mois ET année). Le champ
+    /// étant toujours initialisé par <see cref="ActualiserEtatsMois"/>, une valeur absente
+    /// est invalide.
     /// </summary>
     private bool DateSaisieEstDansLeMois()
     {
-        return DateSaisie is { } jour && jour.Month == IndexMoisSelectionne + 1;
+        return DateSaisie is { } jour
+               && jour.Month == IndexMoisSelectionne + 1
+               && jour.Year == MoisCourant.Annee;
     }
 
     private static bool EssayerMontant(string texte, out float montant)
@@ -497,15 +878,17 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Date proposée par défaut pour le formulaire : aujourd'hui si elle appartient au mois
-    /// affiché, sinon le 1er jour du mois (cohérent avec la règle de <see cref="MonthBudget"/>).
+    /// Date proposée par défaut pour le formulaire : aujourd'hui si elle appartient au mois et
+    /// à l'année affichés, sinon le 1er jour du mois dans l'année affichée (cohérent avec la
+    /// règle de <see cref="MonthBudget"/>).
     /// </summary>
-    private static DateTime DateParDefaut(int indexMois)
+    private DateTime DateParDefaut()
     {
-        int mois = indexMois + 1;
-        return mois == DateTime.Today.Month
+        int annee = MoisCourant.Annee;
+        int mois = IndexMoisSelectionne + 1;
+        return mois == DateTime.Today.Month && annee == DateTime.Today.Year
             ? DateTime.Today
-            : new DateTime(DateTime.Today.Year, mois, 1);
+            : new DateTime(annee, mois, 1);
     }
 
     /// <summary>

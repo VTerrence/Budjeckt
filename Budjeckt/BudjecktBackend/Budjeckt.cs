@@ -5,12 +5,15 @@ namespace Budjeckt;
 /// <summary>
 /// Année Budjeckt (lv0) : classe principale regroupant le nom de l'année et les 12 mois
 /// (<see cref="MonthBudget"/>). Elle sait charger et sauvegarder ses données dans un fichier
-/// JSON (ex. <c>depenses.json</c>) via des sous-méthodes privées.
+/// JSON (ex. <c>depenses-2026.json</c>) via des sous-méthodes privées.
 /// </summary>
 public class Budjeckt
 {
     private string _annee;
     private MonthBudget[] _mois;
+
+    /// <summary>Nom du fichier hérité, sans année (« depenses.json »).</summary>
+    public const string NomFichierHerite = "depenses.json";
 
     /// <summary>
     /// Noms des 12 mois de l'année dans l'ordre de navigation (source unique, utilisée
@@ -23,6 +26,48 @@ public class Budjeckt
     };
 
     /// <summary>
+    /// Nom du fichier JSON d'une année donnée (ex. « depenses-2026.json »).
+    /// </summary>
+    /// <param name="annee">Année (ex. 2026).</param>
+    public static string NomFichierPourAnnee(int annee) => $"depenses-{annee}.json";
+
+    /// <summary>
+    /// Extrait l'année déclarée d'un fichier JSON sans valider les mois (utilisé pour la
+    /// migration du fichier hérité). Retourne null si le fichier est absent, trop volumineux,
+    /// illisible, si l'année n'est pas un nombre entier ou si elle est hors de la plage
+    /// plausible (1900-2100).
+    /// </summary>
+    /// <param name="chemin">Chemin du fichier JSON.</param>
+    internal static int? LireAnneeDuFichier(string chemin)
+    {
+        if (!File.Exists(chemin))
+        {
+            return null;
+        }
+
+        if (new FileInfo(chemin).Length > TailleMaximaleFichier)
+        {
+            return null;
+        }
+
+        try
+        {
+            string contenu = File.ReadAllText(chemin);
+            BudjecktJson donnees = Deserialiser(contenu);
+            int? annee = int.TryParse(donnees?.Annee?.Trim(), out int valeur) ? valeur : null;
+            return annee is >= 1900 and <= 2100 ? annee : null;
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Construit une année Budjeckt avec le nom de l'année récupéré par le programme (date système).
     /// </summary>
     public Budjeckt()
@@ -32,7 +77,7 @@ public class Budjeckt
 
     /// <summary>
     /// Construit une année Budjeckt avec le nom d'année fourni et crée les 12 mois
-    /// <see cref="MonthBudget"/> (un par mois de l'année).
+    /// <see cref="MonthBudget"/> (un par mois de l'année) avec les catégories par défaut.
     /// </summary>
     /// <param name="annee">Nom de l'année (ex. « 2024 », « 2026 »).</param>
     /// <exception cref="ArgumentException">Si le nom de l'année est vide.</exception>
@@ -40,7 +85,8 @@ public class Budjeckt
     {
         Validation.VerifierNomNonVide(annee);
         _annee = annee;
-        _mois = CreerDouzeMois();
+        int anneeEntiere = int.Parse(annee, System.Globalization.CultureInfo.InvariantCulture);
+        _mois = CreerDouzeMois(anneeEntiere);
     }
 
     /// <summary>Nom de l'année (ex. « 2026 »).</summary>
@@ -66,7 +112,9 @@ public class Budjeckt
     /// Si le fichier n'existe pas, les données par défaut sont conservées (premier lancement).
     /// </summary>
     /// <param name="chemin">Chemin du fichier JSON.</param>
-    /// <exception cref="InvalidDataException">Si le fichier existe mais est corrompu ou mal formé.</exception>
+    /// <exception cref="InvalidDataException">Si le fichier existe mais est corrompu, mal formé,
+    /// contient une année non numérique ou hors de la plage plausible (1900-2100), ou une
+    /// facture datée d'une année ne correspondant pas à l'année déclarée dans le fichier.</exception>
     public void ChargerJson(string chemin)
     {
         string? contenu = LireFichier(chemin);
@@ -130,16 +178,27 @@ public class Budjeckt
     }
 
     /// <summary>
-    /// Vérifie que la structure du JSON est correcte : année présente, exactement 12 mois dont
-    /// le nom est connu, chaque mois avec des catégories nommées à ids uniques, aucun élément nul,
+    /// Vérifie que la structure du JSON est correcte : année présente et numérique, exactement 12 mois
+    /// dont le nom est connu, chaque mois avec des catégories nommées à ids uniques, aucun élément nul,
     /// montants finis et strictement positifs, heure optionnelle dans [00:00, 24:00), date plausible
-    /// appartenant au mois affiché, et chaque facture liée à une catégorie existante à ids uniques.
+    /// appartenant au mois affiché et à l'année déclarée, et chaque facture liée à une catégorie
+    /// existante à ids uniques.
     /// </summary>
     private static void ValiderJson(BudjecktJson donnees)
     {
         if (string.IsNullOrWhiteSpace(donnees.Annee))
         {
             throw new InvalidDataException("Le fichier JSON ne contient pas d'année valide.");
+        }
+
+        if (!int.TryParse(donnees.Annee.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int annee))
+        {
+            throw new InvalidDataException($"L'année du fichier JSON n'est pas un nombre valide : \"{donnees.Annee}\".");
+        }
+
+        if (annee < 1900 || annee > 2100)
+        {
+            throw new InvalidDataException($"L'année {annee} du fichier JSON est hors de la plage plausible (1900-2100).");
         }
 
         if (donnees.Mois is null || donnees.Mois.Count != 12)
@@ -250,24 +309,33 @@ public class Budjeckt
                     throw new InvalidDataException(
                         $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a une date qui n'appartient pas à ce mois.");
                 }
+
+                if (facture.Date.Year != annee)
+                {
+                    throw new InvalidDataException(
+                        $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a une date dont l'année {facture.Date.Year} ne correspond pas à l'année déclarée {annee}.");
+                }
             }
         }
     }
 
     /// <summary>
-    /// Applique les données du DTO validé au modèle de l'année.
-    /// Les deux champs ne sont assignés qu'après construction complète des mois :
+    /// Applique les données du DTO validé au modèle de l'année. L'année est parsée depuis le DTO
+    /// et passée à chaque mois. Les deux champs sont assignés après construction complète des mois :
     /// un échec (ex. débordement float) laisse alors l'objet dans son état précédent.
     /// </summary>
     private void AppliquerModele(BudjecktJson donnees)
     {
+        int annee = int.Parse(donnees.Annee!, System.Globalization.CultureInfo.InvariantCulture);
+
         MonthBudget[] nouveauxMois = donnees.Mois!
             .Select(mois => new MonthBudget(
                 mois.Nom!,
                 mois.Revenue,
                 mois.Categories!.Select(categorie => new Tuple<int, string, float>(categorie.Id, categorie.Nom!, 0f)).ToArray(),
                 (mois.Factures ?? Enumerable.Empty<FactureJson>())
-                    .Select(facture => new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, facture.Heure))))
+                    .Select(facture => new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, facture.Heure)),
+                annee))
             .ToArray();
 
         _annee = donnees.Annee!;
@@ -332,10 +400,12 @@ public class Budjeckt
     }
 
     /// <summary>
-    /// Crée les 12 <see cref="MonthBudget"/> de l'année à partir des noms de mois.
+    /// Crée les 12 <see cref="MonthBudget"/> de l'année avec les catégories par défaut.
     /// </summary>
-    private static MonthBudget[] CreerDouzeMois()
+    private static MonthBudget[] CreerDouzeMois(int annee)
     {
-        return NomsDesMois.Select(nom => new MonthBudget(nom)).ToArray();
+        return NomsDesMois
+            .Select(nom => new MonthBudget(nom, 0f, MonthBudget.CreerCategoriesParDefaut(), Enumerable.Empty<Facture>(), annee))
+            .ToArray();
     }
 }

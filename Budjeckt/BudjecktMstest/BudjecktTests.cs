@@ -38,6 +38,20 @@ public class BudjecktTests
     }
 
     [TestMethod]
+    public void ConstructeurAvecAnnée_CréeLesMoisAvecCetteAnnée()
+    {
+        Bud budjeckt = new("2024");
+
+        Assert.IsTrue(budjeckt.Months.All(mois => mois.Annee == 2024));
+    }
+
+    [TestMethod]
+    public void NomFichierPourAnnee_GénèreLeNomAttendu()
+    {
+        Assert.AreEqual("depenses-2026.json", Bud.NomFichierPourAnnee(2026));
+    }
+
+    [TestMethod]
     public void ConstructeurAvecAnnéeVide_LèveArgumentException()
     {
         Assert.ThrowsExactly<ArgumentException>(() => new Bud(" "));
@@ -155,6 +169,31 @@ public class BudjecktTests
     }
 
     [TestMethod]
+    public void ChargerJson_AnnéeNonNumérique_LèveInvalidDataException()
+    {
+        VerifierChargementInvalide(CreerJsonAnnée(annee: "abc"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_AnnéeHorsPlageBasse_LèveInvalidDataException()
+    {
+        VerifierChargementInvalide(CreerJsonAnnée(annee: "1850"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_AnnéeHorsPlageHaute_LèveInvalidDataException()
+    {
+        VerifierChargementInvalide(CreerJsonAnnée(annee: "2200"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_AnnéeMiseEnFormeAvecApostrophes_AcceptéLeFichier()
+    {
+        string json = CreerJsonAnnée(annee: " 2026 ");
+        VerifierChargement(json, budjeckt => Assert.AreEqual(" 2026 ", budjeckt.Annee));
+    }
+
+    [TestMethod]
     public void ChargerJson_MoinsDeDouzeMois_LèveInvalidDataException()
     {
         VerifierChargementInvalide(CreerJsonAnnée(nomsMois: NomsMois.Take(11).ToArray()));
@@ -244,6 +283,14 @@ public class BudjecktTests
         // Mois « Janvier » avec une facture datée de février.
         VerifierChargementInvalide(CreerJsonAnnée(
             factures: _ => "{\"Id\":1,\"IdCategorie\":1,\"Montant\":50,\"Date\":\"2026-02-10T00:00:00\"}"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_FactureDUneAutreAnnée_LèveInvalidDataException()
+    {
+        // Annee 2026 avec une facture datée de 2027 : rejetée à la validation.
+        VerifierChargementInvalide(CreerJsonAnnée(
+            factures: _ => "{\"Id\":1,\"IdCategorie\":1,\"Montant\":50,\"Date\":\"2027-01-10T00:00:00\"}"));
     }
 
     [TestMethod]
@@ -505,6 +552,30 @@ public class BudjecktTests
             charge.ChargerJson(chemin);
 
             Assert.AreEqual("2025", charge.Annee);
+        }
+        finally
+        {
+            SupprimerFichier(chemin);
+        }
+    }
+
+    [TestMethod]
+    public void SauvegarderPuisCharger_LesMoisPortentLAnnéeDuFichier_EtLaDateParDefautTombeSurElle()
+    {
+        string chemin = CreerCheminTemporaire();
+        try
+        {
+            new Bud("2025").SauvegarderJson(chemin);
+
+            Bud charge = new();
+            charge.ChargerJson(chemin);
+
+            Assert.IsTrue(charge.Months.All(mois => mois.Annee == 2025), "Tous les mois doivent porter l'année du fichier");
+
+            // Sans date, une facture du mois de janvier 2025 doit retomber sur le 1er
+            // janvier 2025 (janvier n'est pas le mois courant en septembre) et non sur 2026.
+            charge.Months[0].AjouterFacture(1, 10f);
+            Assert.AreEqual(new DateTime(2025, 1, 1), charge.Months[0].Factures[0].Date);
         }
         finally
         {

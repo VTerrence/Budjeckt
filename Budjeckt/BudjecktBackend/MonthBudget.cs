@@ -7,6 +7,7 @@ namespace Budjeckt;
 public class MonthBudget
 {
     private string _nom;
+    private readonly int _annee;
     private float _revenue;
     private Tuple<int, string, float>[] _expenseCategories;
     private readonly List<Facture> _factures;
@@ -15,6 +16,9 @@ public class MonthBudget
 
     /// <summary>Nom du mois (ex. « Janvier »).</summary>
     public string Nom => _nom;
+
+    /// <summary>Année du mois (ex. 2026). Définit les dates qui appartiennent au mois.</summary>
+    public int Annee => _annee;
 
     /// <summary>Budget du mois (revenue).</summary>
     public float Revenue => _revenue;
@@ -38,12 +42,12 @@ public class MonthBudget
     /// <summary>
     /// Construit un mois avec des valeurs par défaut : les 7 catégories de base
     /// (Loyer, Eau, Electricite, Chauffage, Alimentation, Transports, Loisirs) à dépense 0,
-    /// un budget à 0 et aucune facture.
+    /// un budget à 0, aucune facture et l'année courante (horloge système).
     /// </summary>
     /// <param name="nom">Nom du mois.</param>
     /// <exception cref="ArgumentException">Si le nom du mois est vide.</exception>
     public MonthBudget(string nom)
-        : this(nom, 0f, CreerCategoriesParDefaut(), Enumerable.Empty<Facture>())
+        : this(nom, 0f, CreerCategoriesParDefaut(), Enumerable.Empty<Facture>(), DateTime.Today.Year)
     {
     }
 
@@ -55,28 +59,31 @@ public class MonthBudget
     /// <param name="revenue">Budget du mois.</param>
     /// <param name="categories">Catégories de dépense (la dépense faite fournie est ignorée et recalculée).</param>
     /// <param name="factures">Factures du mois, chacune référençant une catégorie existante.</param>
+    /// <param name="annee">Année du mois (ex. 2026) ; l'année courante si absente.</param>
     /// <exception cref="ArgumentException">Si le nom du mois est vide, si le revenue n'est pas
-    /// un nombre fini, si une facture référence une catégorie inconnue ou n'appartient pas au mois.</exception>
+    /// un nombre fini, si une facture référence une catégorie inconnue ou n'appartient pas
+    /// au mois et à l'année du mois.</exception>
     /// <exception cref="InvalidDataException">Si la somme des factures d'une catégorie ou du mois
     /// déborde de la plage flottante.</exception>
-    public MonthBudget(string nom, float revenue, Tuple<int, string, float>[] categories, IEnumerable<Facture> factures)
+    public MonthBudget(string nom, float revenue, Tuple<int, string, float>[] categories, IEnumerable<Facture> factures, int? annee = null)
     {
         ArgumentNullException.ThrowIfNull(categories);
         ArgumentNullException.ThrowIfNull(factures);
         Validation.VerifierNomNonVide(nom);
         Validation.VerifierRevenueFini(revenue);
         _nom = nom;
+        _annee = annee ?? DateTime.Today.Year;
         _revenue = revenue;
         _expenseCategories = categories.ToArray();
         _factures = new List<Facture>(factures);
 
         // Une facture référençant une catégorie inconnue serait silencieusement exclue du recalcul
         // des dépenses par catégorie (filtrée par IdCategorie), donc de la dépense totale.
-        // Une facture datée d'un autre mois fausserait le tri et l'affichage du mois.
+        // Une facture datée d'un autre mois ou d'une autre année fausserait le tri et l'affichage du mois.
         foreach (Facture facture in _factures)
         {
             Validation.VerifierCategorieExiste(facture.IdCategorie, _expenseCategories.Select(categorie => categorie.Item1));
-            Validation.VerifierDateDansLeMois(facture.Date, _nom);
+            Validation.VerifierDateDansLeMois(facture.Date, _nom, _annee);
         }
 
         RecalculerTotaux();
@@ -191,23 +198,26 @@ public class MonthBudget
     }
 
     /// <summary>
-    /// Résout la date effective d'une facture : la date fournie doit appartenir au mois affiché ;
-    /// sans date, retourne aujourd'hui si aujourd'hui appartient au mois, sinon le 1er jour du mois.
+    /// Résout la date effective d'une facture : la date fournie doit appartenir au mois et
+    /// à l'année affichés ; sans date, retourne aujourd'hui si aujourd'hui appartient au mois
+    /// et à l'année affichés, sinon le 1er jour du mois dans l'année affichée.
     /// </summary>
     /// <param name="date">Date fournie, éventuellement absente.</param>
     /// <returns>Date effective, normalisée sans composante horaire.</returns>
-    /// <exception cref="ArgumentException">Si la date fournie n'appartient pas au mois affiché ou est implausible.</exception>
+    /// <exception cref="ArgumentException">Si la date fournie n'appartient pas au mois ou
+    /// à l'année affichés ou est implausible.</exception>
     private DateTime ResoudreDate(DateTime? date)
     {
         if (date is { } valeur)
         {
             Validation.VerifierDatePlausible(valeur);
-            Validation.VerifierDateDansLeMois(valeur, _nom);
+            Validation.VerifierDateDansLeMois(valeur, _nom, _annee);
             return valeur.Date;
         }
 
-        // Sans date : aujourd'hui si aujourd'hui appartient au mois affiché, sinon le 1er du mois.
-        // Importer une dépense dans un mois passé/futur avec la date du jour serait trompeur.
+        // Sans date : aujourd'hui si aujourd'hui appartient au mois ET à l'année affichés,
+        // sinon le 1er du mois dans l'année affichée. Importer une dépense dans un mois passé/futur
+        // avec la date du jour serait trompeur, tout comme attribuer aujourd'hui à une année différente.
         DateTime aujourdhui = DateTime.Today;
         int? indexMois = Validation.IndexDuMois(_nom);
         if (indexMois is null)
@@ -215,9 +225,9 @@ public class MonthBudget
             throw new ArgumentException($"Le mois \"{_nom}\" est inconnu : impossible d'attribuer une date par défaut.", nameof(_nom));
         }
 
-        return indexMois == aujourdhui.Month
+        return indexMois == aujourdhui.Month && _annee == aujourdhui.Year
             ? aujourdhui
-            : new DateTime(aujourdhui.Year, indexMois.Value, 1);
+            : new DateTime(_annee, indexMois.Value, 1);
     }
 
     /// <summary>
@@ -310,8 +320,9 @@ public class MonthBudget
 
     /// <summary>
     /// Crée les 7 catégories de dépense par défaut avec leurs ids 1 à 7 et une dépense à 0.
+    /// Visible par <see cref="Budjeckt"/> pour construire les mois lors de la création d'une nouvelle année.
     /// </summary>
-    private static Tuple<int, string, float>[] CreerCategoriesParDefaut()
+    internal static Tuple<int, string, float>[] CreerCategoriesParDefaut()
     {
         string[] nomsParDefaut = { "Loyer", "Eau", "Electricite", "Chauffage", "Alimentation", "Transports", "Loisirs" };
         return nomsParDefaut

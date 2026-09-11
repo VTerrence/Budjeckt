@@ -52,9 +52,9 @@ public class MonthBudgetTests
         };
         var factures = new[]
         {
-            new Facture(1, 1, 200f, new DateTime(2026, 1, 3)),
-            new Facture(2, 1, 50f, new DateTime(2026, 1, 10)),
-            new Facture(3, 2, 300f, new DateTime(2026, 1, 20))
+            new Facture(1, 1, 200f, new DateTime(DateTime.Today.Year, 1, 3)),
+            new Facture(2, 1, 50f, new DateTime(DateTime.Today.Year, 1, 10)),
+            new Facture(3, 2, 300f, new DateTime(DateTime.Today.Year, 1, 20))
         };
 
         var mois = new MonthBudget("Janvier", 1000f, categories, factures);
@@ -132,7 +132,7 @@ public class MonthBudgetTests
     public void AjouterFacture_AvecDate_GardeLaDateEtIncémenteLId()
     {
         var mois = new MonthBudget("Janvier");
-        DateTime date = new(2026, 1, 15);
+        DateTime date = new(DateTime.Today.Year, 1, 15);
 
         mois.AjouterFacture(4, 12.5f);
         mois.AjouterFacture(5, 60f, date);
@@ -148,7 +148,7 @@ public class MonthBudgetTests
         var mois = new MonthBudget("Janvier");
         var heure = new TimeSpan(14, 30, 0);
 
-        mois.AjouterFacture(4, 12.5f, new DateTime(2026, 1, 3), heure);
+        mois.AjouterFacture(4, 12.5f, new DateTime(DateTime.Today.Year, 1, 3), heure);
 
         Assert.HasCount(1, mois.Factures);
         Assert.AreEqual(heure, mois.Factures[0].Heure);
@@ -159,7 +159,7 @@ public class MonthBudgetTests
     {
         var mois = new MonthBudget("Janvier");
 
-        mois.AjouterFacture(4, 12.5f, new DateTime(2026, 1, 3));
+        mois.AjouterFacture(4, 12.5f, new DateTime(DateTime.Today.Year, 1, 3));
 
         Assert.IsNull(mois.Factures[0].Heure);
     }
@@ -225,9 +225,9 @@ public class MonthBudgetTests
     {
         var mois = new MonthBudget("Janvier");
 
-        mois.AjouterFacture(4, 10f, new DateTime(2026, 1, 10, 15, 30, 0));
+        mois.AjouterFacture(4, 10f, new DateTime(DateTime.Today.Year, 1, 10, 15, 30, 0));
 
-        Assert.AreEqual(new DateTime(2026, 1, 10), mois.Factures[0].Date);
+        Assert.AreEqual(new DateTime(DateTime.Today.Year, 1, 10), mois.Factures[0].Date);
     }
 
     [TestMethod]
@@ -324,7 +324,7 @@ public class MonthBudgetTests
         };
         var factures = new[]
         {
-            new Facture(1, 1, 120f, new DateTime(2026, 1, 3))
+            new Facture(1, 1, 120f, new DateTime(DateTime.Today.Year, 1, 3))
         };
 
         var mois = new MonthBudget("Janvier", 500f, categories, factures);
@@ -436,9 +436,9 @@ public class MonthBudgetTests
             },
             new[]
             {
-                new Facture(1, 1, 25f, new DateTime(2026, 1, 3)),
-                new Facture(2, 1, 50f, new DateTime(2026, 1, 10)),
-                new Facture(3, 2, 75f, new DateTime(2026, 1, 15))
+                new Facture(1, 1, 25f, new DateTime(DateTime.Today.Year, 1, 3)),
+                new Facture(2, 1, 50f, new DateTime(DateTime.Today.Year, 1, 10)),
+                new Facture(3, 2, 75f, new DateTime(DateTime.Today.Year, 1, 15))
             });
         Assert.AreEqual(-50f, mois.BudgetRemaining, 0.001f);
 
@@ -488,7 +488,7 @@ public class MonthBudgetTests
     {
         var mois = new MonthBudget("Janvier", 0f,
             new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
-            new[] { new Facture(1, 1, float.MaxValue, new DateTime(2026, 1, 3)) });
+            new[] { new Facture(1, 1, float.MaxValue, new DateTime(DateTime.Today.Year, 1, 3)) });
         Assert.AreEqual(-float.MaxValue, mois.BudgetRemaining, 0.001f);
 
         Assert.ThrowsExactly<InvalidDataException>(() => mois.ChangerRevenue(-float.MaxValue));
@@ -559,5 +559,68 @@ public class MonthBudgetTests
 
         Assert.AreEqual(150f, mois.TotalExpenses, 0.001f);
         Assert.AreEqual(-50f, mois.BudgetRemaining, 0.001f, "Le reste peut être négatif si le budget est dépassé");
+    }
+
+    [TestMethod]
+    public void ConstructeurParDéfaut_ExposeLAnnéeCourante()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        Assert.AreEqual(DateTime.Today.Year, mois.Annee);
+    }
+
+    [TestMethod]
+    public void ConstructeurAvecAnnée_ExposeLAnnéeFournie()
+    {
+        var mois = new MonthBudget("Janvier", 0f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>(), 2025);
+
+        Assert.AreEqual(2025, mois.Annee);
+    }
+
+    [TestMethod]
+    public void ConstructeurComplet_FactureDUneAutreAnnée_LèveArgumentException()
+    {
+        var categories = new[]
+        {
+            new Tuple<int, string, float>(1, "Loyer", 0f),
+            new Tuple<int, string, float>(2, "Eau", 0f)
+        };
+        var factures = new[]
+        {
+            new Facture(1, 1, 200f, new DateTime(2027, 1, 3))
+        };
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            new MonthBudget("Janvier", 1000f, categories, factures, 2026));
+    }
+
+    [TestMethod]
+    public void AjouterFacture_AvecDateDUneAutreAnnée_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier", 0f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>(), 2025);
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.AjouterFacture(1, 10f, new DateTime(2026, 1, 5)));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.AjouterFacture(1, 10f, new DateTime(2025, 2, 5)));
+    }
+
+    [TestMethod]
+    public void AjouterFacture_SansDate_AutreAnnéeMêmeMoisCourant_UtilisePremierDuMoisDeLAnnée()
+    {
+        // Le mois correspond au mois courant mais l'année du mois est différente :
+        // la date par défaut ne doit PAS être aujourd'hui, mais le 1er du mois dans cette année.
+        string nomMoisCourant = NomsMois[DateTime.Today.Month - 1];
+        int autreAnnée = DateTime.Today.Year + 1;
+        var mois = new MonthBudget(nomMoisCourant, 0f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>(), autreAnnée);
+
+        mois.AjouterFacture(1, 10f);
+
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(new DateTime(autreAnnée, DateTime.Today.Month, 1), mois.Factures[0].Date);
     }
 }

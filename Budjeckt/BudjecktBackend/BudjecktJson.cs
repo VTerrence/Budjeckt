@@ -1,7 +1,7 @@
 namespace Budjeckt;
 
 /// <summary>
-/// DTO de l'année Budjeckt utilisé par la sérialisation JSON (fichier <c>depenses.json</c>).
+/// DTO de l'année Budjeckt utilisé par la sérialisation JSON (fichiers <c>depenses-&lt;année&gt;.json</c>).
 /// </summary>
 internal class BudjecktJson
 {

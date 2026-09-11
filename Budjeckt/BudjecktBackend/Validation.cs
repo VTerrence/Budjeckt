@@ -115,12 +115,15 @@ public static class Validation
     }
 
     /// <summary>
-    /// Vérifie que la date appartient au mois dont le nom (ex. « Janvier ») est fourni.
+    /// Vérifie que la date appartient au mois et à l'année dont le nom de mois (ex. « Janvier »)
+    /// et l'année (ex. 2026) sont fournis.
     /// </summary>
     /// <param name="date">Date à vérifier.</param>
     /// <param name="nomMois">Nom du mois d'appartenance attendu.</param>
-    /// <exception cref="ArgumentException">Si le nom du mois est inconnu ou si la date n'appartient pas au mois.</exception>
-    public static void VerifierDateDansLeMois(DateTime date, string nomMois)
+    /// <param name="annee">Année d'appartenance attendue (ex. 2026).</param>
+    /// <exception cref="ArgumentException">Si le nom du mois est inconnu ou si la date n'appartient
+    /// pas au mois ou à l'année.</exception>
+    public static void VerifierDateDansLeMois(DateTime date, string nomMois, int annee)
     {
         int? index = IndexDuMois(nomMois);
         if (index is null)
@@ -128,9 +131,9 @@ public static class Validation
             throw new ArgumentException($"Le mois \"{nomMois}\" est inconnu.", nameof(nomMois));
         }
 
-        if (date.Month != index.Value)
+        if (date.Month != index.Value || date.Year != annee)
         {
-            throw new ArgumentException($"La date doit appartenir au mois de {nomMois}.", nameof(date));
+            throw new ArgumentException($"La date doit appartenir au mois de {nomMois} {annee}.", nameof(date));
         }
     }
 

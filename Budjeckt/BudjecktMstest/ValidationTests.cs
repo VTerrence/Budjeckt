@@ -187,40 +187,47 @@ public class ValidationTests
     [TestMethod]
     public void VerifierDateDansLeMois_DateDansLeMois_NeLèveRien()
     {
-        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 15), "Janvier");
+        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 15), "Janvier", 2026);
     }
 
     [TestMethod]
     public void VerifierDateDansLeMois_NomInsensibleÀLaCasse_NeLèveRien()
     {
-        Validation.VerifierDateDansLeMois(new DateTime(2026, 2, 5), "février");
-        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), "JANVIER");
+        Validation.VerifierDateDansLeMois(new DateTime(2026, 2, 5), "février", 2026);
+        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), "JANVIER", 2026);
     }
 
     [TestMethod]
     public void VerifierDateDansLeMois_NomAvecEspaces_NeLèveRien()
     {
-        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), " Janvier ");
+        Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), " Janvier ", 2026);
     }
 
     [TestMethod]
     public void VerifierDateDansLeMois_NomNull_LèveArgumentException()
     {
         Assert.ThrowsExactly<ArgumentException>(() =>
-            Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), null!));
+            Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), null!, 2026));
     }
 
     [TestMethod]
     public void VerifierDateDansLeMois_DateHorsMois_LèveArgumentException()
     {
         Assert.ThrowsExactly<ArgumentException>(() =>
-            Validation.VerifierDateDansLeMois(new DateTime(2026, 2, 5), "Janvier"));
+            Validation.VerifierDateDansLeMois(new DateTime(2026, 2, 5), "Janvier", 2026));
     }
 
     [TestMethod]
     public void VerifierDateDansLeMois_MoisInconnu_LèveArgumentException()
     {
         Assert.ThrowsExactly<ArgumentException>(() =>
-            Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), "Trece"));
+            Validation.VerifierDateDansLeMois(new DateTime(2026, 1, 5), "Trece", 2026));
+    }
+
+    [TestMethod]
+    public void VerifierDateDansLeMois_DateHorsAnnée_LèveArgumentException()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            Validation.VerifierDateDansLeMois(new DateTime(2027, 1, 5), "Janvier", 2026));
     }
 }
