@@ -9,14 +9,18 @@ namespace Budjeckt;
 /// </summary>
 public class Budjeckt
 {
-    private static readonly string[] NomsMois =
+    private string _annee;
+    private MonthBudget[] _mois;
+
+    /// <summary>
+    /// Noms des 12 mois de l'année dans l'ordre de navigation (source unique, utilisée
+    /// pour créer les mois et par l'interface pour ne pas dupliquer la liste).
+    /// </summary>
+    public static IReadOnlyList<string> NomsDesMois { get; } = new[]
     {
         "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
         "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
     };
-
-    private string _annee;
-    private MonthBudget[] _mois;
 
     /// <summary>
     /// Construit une année Budjeckt avec le nom de l'année récupéré par le programme (date système).
@@ -310,7 +314,9 @@ public class Budjeckt
     }
 
     /// <summary>
-    /// Écrit le contenu JSON dans le fichier, en créant le répertoire parent si nécessaire.
+    /// Écrit le contenu JSON dans le fichier en créant le répertoire parent si nécessaire.
+    /// L'écriture est atomique : le contenu est d'abord écrit dans un fichier temporaire puis
+    /// déplacé par-dessus la cible, afin qu'une coupure en plein écriture ne tronque pas le fichier.
     /// </summary>
     private static void EcrireFichier(string chemin, string contenu)
     {
@@ -320,7 +326,9 @@ public class Budjeckt
             Directory.CreateDirectory(repertoire);
         }
 
-        File.WriteAllText(chemin, contenu);
+        string cheminTemporaire = chemin + ".tmp";
+        File.WriteAllText(cheminTemporaire, contenu);
+        File.Move(cheminTemporaire, chemin, true);
     }
 
     /// <summary>
@@ -328,6 +336,6 @@ public class Budjeckt
     /// </summary>
     private static MonthBudget[] CreerDouzeMois()
     {
-        return NomsMois.Select(nom => new MonthBudget(nom)).ToArray();
+        return NomsDesMois.Select(nom => new MonthBudget(nom)).ToArray();
     }
 }

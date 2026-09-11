@@ -361,6 +361,143 @@ public class MonthBudgetTests
     }
 
     [TestMethod]
+    public void ChangerRevenue_ModifieLeRevenueEtLeReste()
+    {
+        var mois = new MonthBudget("Janvier", 100f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+        mois.AjouterFacture(1, 25f);
+
+        mois.ChangerRevenue(200f);
+
+        Assert.AreEqual(200f, mois.Revenue);
+        Assert.AreEqual(175f, mois.BudgetRemaining, 0.001f);
+        Assert.AreEqual(25f, mois.TotalExpenses, 0.001f, "Le total des dépenses ne doit pas changer");
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_RevenueNaN_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.ChangerRevenue(float.NaN));
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_RevenueInfini_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.ChangerRevenue(float.PositiveInfinity));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.ChangerRevenue(float.NegativeInfinity));
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_RevenueNégatif_EstAccepté()
+    {
+        var mois = new MonthBudget("Janvier", 100f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+
+        mois.ChangerRevenue(-50f);
+
+        Assert.AreEqual(-50f, mois.Revenue);
+        Assert.AreEqual(-50f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_RevenueInvalide_LaisseRevenueEtResteInchangés()
+    {
+        var mois = new MonthBudget("Janvier", 100f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+        mois.AjouterFacture(1, 25f);
+        Assert.AreEqual(75f, mois.BudgetRemaining, 0.001f);
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.ChangerRevenue(float.NaN));
+        Assert.AreEqual(100f, mois.Revenue, "La validation précède toute mutation");
+        Assert.AreEqual(75f, mois.BudgetRemaining, 0.001f, "Le reste ne change pas si le revenue est refusé");
+        Assert.AreEqual(25f, mois.TotalExpenses, 0.001f);
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.ChangerRevenue(float.PositiveInfinity));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.ChangerRevenue(float.NegativeInfinity));
+        Assert.AreEqual(100f, mois.Revenue);
+        Assert.AreEqual(75f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_SurMoisAvecFactures_NeModifieQueLeRevenueEtLeReste()
+    {
+        var mois = new MonthBudget("Janvier", 100f,
+            new[]
+            {
+                new Tuple<int, string, float>(1, "Loyer", 0f),
+                new Tuple<int, string, float>(2, "Eau", 0f)
+            },
+            new[]
+            {
+                new Facture(1, 1, 25f, new DateTime(2026, 1, 3)),
+                new Facture(2, 1, 50f, new DateTime(2026, 1, 10)),
+                new Facture(3, 2, 75f, new DateTime(2026, 1, 15))
+            });
+        Assert.AreEqual(-50f, mois.BudgetRemaining, 0.001f);
+
+        mois.ChangerRevenue(300f);
+
+        Assert.AreEqual(300f, mois.Revenue);
+        Assert.AreEqual(150f, mois.TotalExpenses, 0.001f, "Le total des dépenses ne doit pas changer");
+        Assert.AreEqual(150f, mois.BudgetRemaining, 0.001f);
+        Tuple<int, string, float>[] categories = mois.ExpenseCategories;
+        Assert.AreEqual(75f, categories[0].Item3, 0.001f, "Dépense Loyer inchangée");
+        Assert.AreEqual(75f, categories[1].Item3, 0.001f, "Dépense Eau inchangée");
+        Assert.HasCount(3, mois.Factures);
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_RevenueNul_LeResteDevientLOpposéDuTotal()
+    {
+        var mois = new MonthBudget("Janvier", 100f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+        mois.AjouterFacture(1, 40f);
+
+        mois.ChangerRevenue(0f);
+
+        Assert.AreEqual(0f, mois.Revenue);
+        Assert.AreEqual(-40f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_RevenueAuxBornesFloat_EstAccepté()
+    {
+        var mois = new MonthBudget("Janvier", 0f,
+            Array.Empty<Tuple<int, string, float>>(),
+            Enumerable.Empty<Facture>());
+
+        mois.ChangerRevenue(float.MaxValue);
+        Assert.AreEqual(float.MaxValue, mois.Revenue);
+        Assert.AreEqual(float.MaxValue, mois.BudgetRemaining);
+
+        mois.ChangerRevenue(float.MinValue);
+        Assert.AreEqual(float.MinValue, mois.Revenue);
+        Assert.AreEqual(float.MinValue, mois.BudgetRemaining);
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_ResteDébordant_LèveInvalidDataException()
+    {
+        var mois = new MonthBudget("Janvier", 0f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            new[] { new Facture(1, 1, float.MaxValue, new DateTime(2026, 1, 3)) });
+        Assert.AreEqual(-float.MaxValue, mois.BudgetRemaining, 0.001f);
+
+        Assert.ThrowsExactly<InvalidDataException>(() => mois.ChangerRevenue(-float.MaxValue));
+
+        Assert.AreEqual(0f, mois.Revenue, "Le revenue ne doit pas être modifié si le reste déborde");
+        Assert.AreEqual(-float.MaxValue, mois.BudgetRemaining, 0.001f, "Le reste (déjà à la borne) doit rester inchangé");
+    }
+
+    [TestMethod]
     public void ConstructeurComplet_FactureRéférençantCatégorieInconnue_LèveArgumentException()
     {
         var categories = new[] { new Tuple<int, string, float>(1, "Loyer", 0f) };

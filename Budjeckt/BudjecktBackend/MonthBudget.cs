@@ -83,6 +83,28 @@ public class MonthBudget
     }
 
     /// <summary>
+    /// Modifie le budget (revenue) du mois puis recalcule le reste. Le revenue peut être
+    /// négatif (budget en déficit) mais doit rester un nombre fini.
+    /// </summary>
+    /// <param name="revenue">Nouveau budget du mois.</param>
+    /// <exception cref="ArgumentException">Si le revenue est NaN ou infini.</exception>
+    /// <exception cref="InvalidDataException">Si la différence revenue - dépenses déborde de la plage flottante.</exception>
+    public void ChangerRevenue(float revenue)
+    {
+        Validation.VerifierRevenueFini(revenue);
+
+        // Le nouveau reste est validé AVANT toute mutation : un débordement refusé ne doit
+        // laisser ni revenue ni reste dans un état partiellement modifié (transactionnalité).
+        if (float.IsInfinity(revenue - _totalExpenses))
+        {
+            throw new InvalidDataException("Le reste du budget déborde de la plage flottante.");
+        }
+
+        _revenue = revenue;
+        RecalculerReste();
+    }
+
+    /// <summary>
     /// Ajoute une catégorie de dépense après vérification : nom non vide et unique.
     /// La dépense faite est mise à 0 et l'id vaut l'id précédent + 1.
     /// </summary>
@@ -262,11 +284,18 @@ public class MonthBudget
     }
 
     /// <summary>
-    /// Calcule et modifie le reste du budget (revenue - total des dépenses).
+    /// Calcule et modifie le reste du budget (revenue - total des dépenses), en refusant
+    /// le débordement flottant silencieux (même garde que le total et les catégories).
     /// </summary>
+    /// <exception cref="InvalidDataException">Si le reste déborde de la plage float.</exception>
     private void RecalculerReste()
     {
         _budgetRemaining = _revenue - _totalExpenses;
+
+        if (float.IsInfinity(_budgetRemaining))
+        {
+            throw new InvalidDataException("Le reste du budget déborde de la plage flottante.");
+        }
     }
 
     /// <summary>

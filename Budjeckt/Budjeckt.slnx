@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="BudjecktBackend/BudjecktBackend.csproj" />
+  <Project Path="BudjecktFrontend/BudjecktFrontend.csproj" />
+  <Project Path="BudjecktMstest/BudjecktMstest.csproj" />
+</Solution>

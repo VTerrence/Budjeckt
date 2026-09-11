@@ -1,6 +1,6 @@
 # Budjeckt
 
-Application de bureau Windows (WPF, .NET 10) de suivi de dépenses quotidiennes, **100 % locale** : aucune base de données lourde, aucune connexion internet. Les données sont persistées dans un fichier texte JSON (ex. `depenses.json`).
+Application de bureau Windows (WPF, .NET 10) de suivi de dépenses quotidiennes, **100 % locale** : aucune base de données lourde, aucune connexion internet. Les données sont persistées dans un fichier texte JSON, situé dans `%APPDATA%\Budjeckt\depenses.json` (créé automatiquement au premier enregistrement).
 
 ## Objectif
 
@@ -11,26 +11,39 @@ Permettre à l'utilisateur de consigner et suivre ses dépenses quotidiennes :
 - **Indicateur financier** : total des dépenses et reste du budget, recalculés dynamiquement à chaque ajout/suppression.
 - **Suppression** définitive d'une dépense.
 - **Filtrage** par catégorie de dépense.
-- **Persistance** automatique dans le fichier JSON au lancement et à la fermeture.
+- **Persistance** automatique dans le fichier JSON après chaque ajout, suppression ou changement de budget, et chargement au démarrage.
 
 Référence détaillée : `AnalyseProjetBudjeckt.md` (cahier des charges + conception).
 
 ## Structure du projet
 
-La solution `Budjeckt.slnx` et les trois projets sont sous `BudjecktBackend/` :
+La solution `Budjeckt.slnx` (format XML `.slnx`) et les trois projets sont regroupés sous le dossier `Budjeckt/` :
 
 ```
-BudjecktBackend/
+Budjeckt/
 ├── Budjeckt.slnx                    # solution (format XML .slnx)
-├── Budjeckt/                        # bibliothèque de classes net10.0 (modèle métier)
+├── BudjecktBackend/                 # bibliothèque de classes net10.0 (modèle métier)
 │   ├── Budjeckt.cs                  #   année (lv0) : charge/sauvegarde du JSON
 │   ├── MonthBudget.cs               #   mois (lv1) : catégories, budget, factures, totaux
 │   ├── Facture.cs                   #   dépense individuelle (immuable)
 │   ├── Validation.cs                #   règles métier (noms, montants, ids)
 │   └── *Json.cs                     #   DTOs internes de sérialisation JSON
-├── BudjecktTest/                    # tests MSTest net10.0 (118 tests, parallélisés)
+├── BudjecktMstest/                  # tests MSTest net10.0 (129 tests, parallélisés)
 └── BudjecktFrontend/                # application WPF net10.0-windows
+    ├── MainViewModel.cs             # vue modèle MVVM (CommunityToolkit.Mvvm 8.4.0)
+    ├── ApercuFacture.cs             # vue d'une facture pour l'historique
+    ├── Formatage.cs                 # formatage d'affichage des montants
+    └── MainWindow.xaml(.cs)         # fenêtre principale WPF
 ```
+
+## Fonctionnalités du frontend WPF
+
+- **Navigation entre les 12 mois** : boutons `‹` / `›` (boucle décembre ↔ janvier) et liste déroulante des mois.
+- **Ajout d'une dépense** dans le mois affiché : montant (nombre fini strictement positif), catégorie, date, heure optionnelle au format « HH:mm ». Le bouton reste désactivé tant que la saisie est invalide (montant ≦ 0 ou non numérique, heure hors `[00:00, 24:00)`, date hors du mois).
+- **Budget mensuel modifiable** (revenue, nombre fini, négatif admis) recalculé immédiatement avec le reste.
+- **Filtre par catégorie**, **tri décroissant** (date, puis heure, puis id) et **suppression** de la dépense sélectionnée.
+- **Barre de synthèse** : total affiché (après filtre), total du mois et reste du budget (vert / rouge).
+- **Gestion des erreurs** : messages français non techniques ; un fichier de données corrompu est mis de côté (`depenses.json.corrompu-*.bak`) au lieu d'être écrasé.
 
 ## Prérequis
 
@@ -44,20 +57,20 @@ Commandes à exécuter depuis la racine du repo (`C:\Users\Terrence\Desktop\Budj
 **Compilation de la solution :**
 
 ```
-dotnet build BudjecktBackend/Budjeckt.slnx
+dotnet build Budjeckt/Budjeckt.slnx
 ```
 
-**Exécution des tests (118 tests, MSTest) :**
+**Exécution des tests (129 tests, MSTest) :**
 
 ```
-dotnet test BudjecktBackend/Budjeckt.slnx
-dotnet test BudjecktBackend/Budjeckt.slnx --filter "FullyQualifiedName~Budjeckt.Tests.ValidationTests.VerifierMontantPositif_MontantNaN_LèveArgumentException"
+dotnet test Budjeckt/Budjeckt.slnx
+dotnet test Budjeckt/Budjeckt.slnx --filter "FullyQualifiedName~Budjeckt.Tests.ValidationTests.VerifierMontantPositif_MontantNaN_LèveArgumentException"
 ```
 
 **Lancement de l'application WPF :**
 
 ```
-dotnet run --project BudjecktBackend/BudjecktFrontend/BudjecktFrontend.csproj
+dotnet run --project Budjeckt/BudjecktFrontend/BudjecktFrontend.csproj
 ```
 
 ## Format du fichier depenses.json
@@ -98,6 +111,11 @@ Notes sur le format :
 - La date d'une facture doit être plausible (année 1900-2100) et **appartenir au mois affiché** ; les ids de catégories et de factures doivent être positifs et uniques au sein d'un mois.
 - Un fichier de plus de 10 Mo est rejeté au chargement.
 - Si `depenses.json` n'existe pas au lancement, l'application démarre avec les valeurs par défaut (12 mois, 7 catégories par défaut, budget 0).
+- **Localisation** : `%APPDATA%\Budjeckt\depenses.json`. Le dossier est créé automatiquement au premier enregistrement ; un fichier corrompu est renommé (`*.corrompu-<horodatage>.bak`) avant d'être remplacé, et l'écriture est **atomique** (fichier temporaire puis déplacement).
+
+## Dépendances externes
+
+- **CommunityToolkit.Mvvm 8.4.0** (projet `BudjecktFrontend` uniquement) — pattern MVVM pour WPF : source-générateurs `[ObservableProperty]` (INotifyPropertyChanged) et `[RelayCommand]` (ICommand), éliminant le boilerplate de binding. Justification : bibliothèque officielle Microsoft (licence MIT), uniquement source-générée (aucun assembly ajouté au-delà du code généré ni dépendance transitive), surface d'attaque nulle (pas de réseau, pas de désérialisation dynamique). Vérifiée avec `dotnet list package --vulnerable` : aucune vulnérabilité connue.
 
 ## Décisions d'architecture
 
@@ -105,4 +123,6 @@ Notes sur le format :
 - **Ids auto-incrémentés « max + 1 »** : aucun compteur n'est persisté ; le prochain id de catégorie ou de facture est dérivé des ids existants (max + 1). Les ids supprimés ne sont donc jamais réutilisés, même après rechargement.
 - **Validation stricte des entrées** (classe `Validation`) : noms non vides et uniques, montants strictement positifs, heure dans `[00:00, 24:00)` si renseignée, dates bornées 1900-2100 et appartenant au mois affiché. La vérification couvre explicitement `NaN` et ±∞ (IEEE 754 : `NaN <= 0` est faux, et un montant comme `1e39` déborde silencieusement vers +∞ en `float`) ainsi que le débordement de la somme des factures d'une catégorie.
 - **DTOs JSON internes séparés du modèle** : `BudjecktJson`, `MonthJson`, `CategoryJson`, `FactureJson` sont des classes internes dédiées à la sérialisation ; le modèle métier (`Budjeckt`, `MonthBudget`, `Facture`) reste indépendant du format de fichier.
+- **MVVM avec CommunityToolkit** : le frontend sépare la logique UI (XAML) de la logique métier (`MainViewModel`). La vue charge le modèle `BudjecktBackend`, applique les mutations, sauvegarde et met à jour les observables ; les commandes sont liées via `[RelayCommand]` avec `CanExecute` (formulaire d'ajout désactivé tant que la saisie est invalide).
+- **Écriture atomique du fichier** : sauvegarde via fichier temporaire puis `File.Move` (renommage sur le même volume), pour qu'une coupure en plein écriture ne tronque pas `depenses.json`.
 - **Un fichier par classe** pour le backend, aligné sur la conception lv0/lv1 (`AnalyseProjetBudjeckt.md`).

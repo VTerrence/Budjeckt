@@ -1,0 +1,171 @@
+﻿<Window x:Class="BudjecktFrontend.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:BudjecktFrontend"
+        mc:Ignorable="d"
+        Title="Budjeckt — Suivi de dépenses"
+        Height="640" Width="1000"
+        MinHeight="640" MinWidth="820"
+        WindowStartupLocation="CenterScreen"
+        FontSize="13">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Barre de navigation des mois -->
+        <Border Grid.Row="0" Padding="8" Background="#1565C0" CornerRadius="6" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="‹"
+                        Command="{Binding PrecedentMoisCommand}"
+                        AutomationProperties.Name="Mois précédent"
+                        Width="34" Height="30" FontSize="18"
+                        ToolTip="Mois précédent"/>
+                <ComboBox ItemsSource="{Binding NomsMois}"
+                          SelectedIndex="{Binding IndexMoisSelectionne, UpdateSourceTrigger=PropertyChanged}"
+                          Width="150" Margin="8,0" Height="30"
+                          FontSize="14"/>
+                <Button Content="›"
+                        Command="{Binding SuivantMoisCommand}"
+                        AutomationProperties.Name="Mois suivant"
+                        Width="34" Height="30" FontSize="18"
+                        ToolTip="Mois suivant"/>
+                <TextBlock Text="{Binding NomAnnee}"
+                           Foreground="White" FontSize="16" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="14,0,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Zone principale : saisie / budget à gauche, historique à droite -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="340"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Zone de saisie + budget -->
+            <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                <GroupBox Header="Nouvelle dépense" Padding="10">
+                    <StackPanel>
+                        <TextBlock Text="Montant" Margin="0,0,0,3"/>
+                        <TextBox Text="{Binding MontantSaisi, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Valeur numérique strictement positive (ex. 12,50)"/>
+                        <TextBlock Text="Catégorie" Margin="0,10,0,3"/>
+<ComboBox ItemsSource="{Binding CategoriesAjout}"
+                          SelectedIndex="{Binding IndexCategorieAjout}"
+                          IsEnabled="{Binding CategoriesDisponibles}"/>
+                        <TextBlock Text="Date" Margin="0,10,0,3"/>
+                        <DatePicker SelectedDate="{Binding DateSaisie}"
+                                    SelectedDateFormat="Short"/>
+                        <TextBlock Text="Heure (optionnelle, HH:mm)" Margin="0,10,0,3"/>
+                        <TextBox Text="{Binding HeureSaisie, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Format HH:mm, ex. 14:30. Laisser vide si aucune heure."/>
+                        <TextBlock Text="{Binding MessageErreur}"
+                                   Foreground="#C62828" TextWrapping="Wrap"
+                                   MinHeight="32" Margin="0,8,0,0"/>
+                        <Button Content="Ajouter la dépense"
+                                Command="{Binding AjouterFactureCommand}"
+                                Height="34" FontSize="14" FontWeight="SemiBold"
+                                Background="#2E7D32" Foreground="White" Padding="10,0"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Budget du mois" Padding="10" Margin="0,10,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Revenue (budget)" Margin="0,0,0,3"/>
+                        <TextBox Text="{Binding RevenueSaisi, UpdateSourceTrigger=LostFocus}"/>
+                        <Button Content="Enregistrer le budget"
+                                Command="{Binding EnregistrerBudgetCommand}"
+                                Margin="0,8,0,0" Height="30"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <TextBlock Text="Total dépenses : " Foreground="#424242"/>
+                            <TextBlock Text="{Binding TotalMoisTexte}" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock Text="Reste : " Foreground="#424242"/>
+                            <TextBlock Text="{Binding ResteTexte}" FontWeight="SemiBold">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#2E7D32"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding RestePositif}" Value="False">
+                                                <Setter Property="Foreground" Value="#C62828"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+
+            <!-- Zone d'affichage de l'historique -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
+                    <TextBlock Text="Filtre : " VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox ItemsSource="{Binding CategoriesFiltre}"
+                              SelectedIndex="{Binding IndexCategorieFiltre}"
+                              Width="240"
+                              ToolTip="Afficher uniquement les dépenses d'une catégorie"/>
+                </StackPanel>
+
+                <DataGrid Grid.Row="1"
+                          ItemsSource="{Binding FacturesAffichees}"
+                          SelectedItem="{Binding FactureSelectionnee}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          CanUserReorderColumns="False"
+                          IsReadOnly="True"
+                          SelectionMode="Single"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal"
+                          BorderBrush="#BDBDBD" BorderThickness="1">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Date" Binding="{Binding DateTexte}" Width="130"/>
+                        <DataGridTextColumn Header="Heure" Binding="{Binding HeureTexte}" Width="70"/>
+                        <DataGridTextColumn Header="Catégorie" Binding="{Binding NomCategorie}" Width="*"/>
+                        <DataGridTextColumn Header="Montant" Binding="{Binding MontantTexte}" Width="120">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="HorizontalAlignment" Value="Right"/>
+                                    <Setter Property="Margin" Value="6,0"/>
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <Button Grid.Row="2"
+                        Content="Supprimer la sélection"
+                        Command="{Binding SupprimerFactureCommand}"
+                        HorizontalAlignment="Right"
+                        Margin="0,8,0,0" Height="30"
+                        Background="#C62828" Foreground="White" Padding="12,0"/>
+            </Grid>
+        </Grid>
+
+        <!-- Zone de synthèse -->
+        <Border Grid.Row="2" Margin="0,10,0,0" Padding="12" Background="#ECEFF1" CornerRadius="6">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Total affiché : " FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding TotalAfficheTexte}" Margin="0,0,24,0"/>
+                <TextBlock Text="Total du mois : " FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding TotalMoisTexte}" Margin="0,0,24,0"/>
+                <TextBlock Text="Reste du budget : " FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding ResteTexte}"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
