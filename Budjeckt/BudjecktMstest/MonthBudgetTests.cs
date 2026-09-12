@@ -102,6 +102,225 @@ public class MonthBudgetTests
     }
 
     [TestMethod]
+    public void SupprimerCatégorie_SupprimeLaCatégorieEtSesFactures_RetourneLeCompte()
+    {
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[]
+            {
+                new Tuple<int, string, float>(1, "Loyer", 0f),
+                new Tuple<int, string, float>(2, "Eau", 0f)
+            },
+            new[]
+            {
+                new Facture(1, 1, 200f, new DateTime(DateTime.Today.Year, 1, 3)),
+                new Facture(2, 1, 50f, new DateTime(DateTime.Today.Year, 1, 10)),
+                new Facture(3, 2, 300f, new DateTime(DateTime.Today.Year, 1, 20))
+            });
+
+        int nbFactures = mois.SupprimerCategorie("Loyer");
+
+        Assert.AreEqual(2, nbFactures);
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(2, mois.Factures[0].IdCategorie, "Les factures de la catégorie supprimée doivent disparaître");
+        Assert.HasCount(1, mois.ExpenseCategories);
+        Assert.AreEqual("Eau", mois.ExpenseCategories[0].Item2);
+        Assert.AreEqual(300f, mois.TotalExpenses, 0.001f);
+        Assert.AreEqual(700f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_InsensibleÀLaCasse()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.AjouterCategorie("Assurance");
+        mois.AjouterFacture(8, 10f);
+
+        int nbFactures = mois.SupprimerCategorie("assurance");
+
+        Assert.AreEqual(1, nbFactures);
+        Assert.IsFalse(mois.ExpenseCategories.Any(categorie => categorie.Item1 == 8));
+        Assert.IsEmpty(mois.Factures);
+        Assert.AreEqual(0f, mois.TotalExpenses);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_NomInconnu_LèveArgumentException_SansMutation()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.AjouterFacture(1, 100f);
+        Assert.HasCount(7, mois.ExpenseCategories);
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerCategorie("Assurance"));
+
+        Assert.HasCount(7, mois.ExpenseCategories, "Rien ne doit être retiré si la catégorie n'existe pas");
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(100f, mois.TotalExpenses, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_NomVide_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerCategorie("   "));
+        Assert.HasCount(7, mois.ExpenseCategories);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_SansFactures_RetourneZéro()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.AjouterCategorie("Assurance");
+
+        int nbFactures = mois.SupprimerCategorie("Assurance");
+
+        Assert.AreEqual(0, nbFactures);
+        Assert.HasCount(7, mois.ExpenseCategories);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_DernièreCatégorie_LèveArgumentException_SansMutation()
+    {
+        var mois = new MonthBudget("Janvier");
+        string[] noms = mois.ExpenseCategories.Select(categorie => categorie.Item2).ToArray();
+        foreach (string nom in noms.Skip(1))
+        {
+            mois.SupprimerCategorie(nom);
+        }
+        Assert.HasCount(1, mois.ExpenseCategories);
+
+        string restante = mois.ExpenseCategories[0].Item2;
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerCategorie(restante));
+
+        Assert.HasCount(1, mois.ExpenseCategories, "La dernière catégorie ne doit jamais être supprimée");
+        Assert.AreEqual(restante, mois.ExpenseCategories[0].Item2);
+        Assert.AreEqual(0f, mois.TotalExpenses, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_DernièreCatégorieAvecFactures_LèveArgumentException_SansMutation()
+    {
+        // Variante avec données : un mois dont la dernière catégorie porte des factures —
+        // le refus doit tout conserver (catégorie, factures, totaux), c'est le cœur de la
+        // garde anti-perte-de-données (un mois à 0 catégorie rejetterait l'année au chargement).
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            new[]
+            {
+                new Facture(1, 1, 200f, new DateTime(DateTime.Today.Year, 1, 3)),
+                new Facture(2, 1, 50f, new DateTime(DateTime.Today.Year, 1, 10))
+            });
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerCategorie("Loyer"));
+
+        Assert.HasCount(1, mois.ExpenseCategories, "La dernière catégorie ne doit jamais être supprimée");
+        Assert.AreEqual("Loyer", mois.ExpenseCategories[0].Item2);
+        Assert.HasCount(2, mois.Factures, "Les factures doivent être conservées après le refus");
+        Assert.AreEqual(250f, mois.TotalExpenses, 0.001f);
+        Assert.AreEqual(750f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_JusquÀUneCatégorie_RéajoutContinueÀLIdMaxPlusUn()
+    {
+        var mois = new MonthBudget("Janvier");
+        string[] noms = mois.ExpenseCategories.Select(categorie => categorie.Item2).ToArray();
+        foreach (string nom in noms.Skip(1))
+        {
+            mois.SupprimerCategorie(nom);
+        }
+        int idRestant = mois.ExpenseCategories[0].Item1;
+
+        mois.AjouterCategorie("Assurance");
+
+        Assert.HasCount(2, mois.ExpenseCategories);
+        Assert.AreEqual(idRestant + 1, mois.ExpenseCategories[^1].Item1,
+            "L'id suivant repart au max existant + 1, jamais de réutilisation d'id libéré");
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_PuisAjouterFacture_SurLesCatégoriesRestantes()
+    {
+        var mois = new MonthBudget("Janvier", 500f,
+            new[]
+            {
+                new Tuple<int, string, float>(1, "Loyer", 0f),
+                new Tuple<int, string, float>(2, "Eau", 0f)
+            },
+            Enumerable.Empty<Facture>());
+        mois.AjouterFacture(1, 100f);
+
+        mois.SupprimerCategorie("Loyer");
+
+        mois.AjouterFacture(2, 50f);
+
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(2, mois.Factures[0].IdCategorie);
+        Assert.AreEqual(50f, mois.TotalExpenses, 0.001f);
+        Assert.AreEqual(50f, mois.ExpenseCategories[0].Item3, 0.001f);
+        Assert.AreEqual(450f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_SansFactures_NeModifieNiLesAutresDépensesNiLeReste()
+    {
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[]
+            {
+                new Tuple<int, string, float>(1, "Loyer", 0f),
+                new Tuple<int, string, float>(2, "Eau", 0f),
+                new Tuple<int, string, float>(3, "Loisirs", 0f)
+            },
+            new[]
+            {
+                new Facture(1, 1, 200f, new DateTime(DateTime.Today.Year, 1, 3)),
+                new Facture(2, 3, 50f, new DateTime(DateTime.Today.Year, 1, 10))
+            });
+
+        int nbFactures = mois.SupprimerCategorie("Eau");
+
+        Assert.AreEqual(0, nbFactures);
+        Assert.HasCount(2, mois.Factures, "Les factures des autres catégories doivent être conservées");
+        Assert.HasCount(2, mois.ExpenseCategories);
+        Assert.AreEqual(200f, mois.ExpenseCategories[0].Item3, 0.001f, "Dépense Loyer inchangée");
+        Assert.AreEqual(50f, mois.ExpenseCategories[1].Item3, 0.001f, "Dépense Loisirs inchangée");
+        Assert.AreEqual(250f, mois.TotalExpenses, 0.001f);
+        Assert.AreEqual(750f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerCatégorie_DuMilieu_ConserveIdsEtNomsEtNéRéutilisePasLIdLibéré()
+    {
+        var mois = new MonthBudget("Janvier", 500f,
+            new[]
+            {
+                new Tuple<int, string, float>(1, "Loyer", 0f),
+                new Tuple<int, string, float>(2, "Eau", 0f),
+                new Tuple<int, string, float>(3, "Loisirs", 0f)
+            },
+            new[]
+            {
+                new Facture(1, 1, 120f, new DateTime(DateTime.Today.Year, 1, 3)),
+                new Facture(2, 3, 30f, new DateTime(DateTime.Today.Year, 1, 10))
+            });
+
+        mois.SupprimerCategorie("Eau");
+
+        Tuple<int, string, float>[] categories = mois.ExpenseCategories;
+        Assert.HasCount(2, categories);
+        Assert.AreEqual(1, categories[0].Item1, "L'id des catégories restantes ne doit pas être réindexé");
+        Assert.AreEqual("Loyer", categories[0].Item2);
+        Assert.AreEqual(3, categories[1].Item1);
+        Assert.AreEqual("Loisirs", categories[1].Item2);
+        Assert.AreEqual(120f, categories[0].Item3, 0.001f, "Dépense Loyer inchangée");
+        Assert.AreEqual(30f, categories[1].Item3, 0.001f, "Dépense Loisirs inchangée");
+
+        mois.AjouterCategorie("Assurance");
+
+        Assert.AreEqual(4, mois.ExpenseCategories[^1].Item1, "L'id libéré ne doit pas être réutilisé : ré-ajout à max + 1");
+    }
+
+    [TestMethod]
     public void AjouterFacture_SansDate_MoisCourant_UtiliseAujourdHui()
     {
         var mois = new MonthBudget(NomsMois[DateTime.Today.Month - 1]);

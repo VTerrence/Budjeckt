@@ -10,8 +10,8 @@ Permettre à l'utilisateur de consigner et suivre ses dépenses quotidiennes :
 - **Affichage de l'historique** des dépenses enregistrées.
 - **Indicateur financier** : total des dépenses et reste du budget, recalculés dynamiquement à chaque ajout/suppression.
 - **Suppression** définitive d'une dépense.
-- **Filtrage** par catégorie de dépense.
-- **Catégories personnalisables** : le dépensé cumulé par catégorie du mois affiché est affiché dans le groupbox « Catégories » ; une catégorie ajoutée s'applique aux 12 mois de l'année (un mois qui la possède déjà est ignoré).
+- **Filtrage** par catégorie de dépense ; un **Total** en pied de liste reflète le filtre (total de la catégorie sélectionnée, ou du mois si aucune) et est recalculé à chaque mutation.
+- **Catégories personnalisables** : une catégorie ajoutée s'applique aux 12 mois de l'année (un mois qui la possède déjà est ignoré) ; une catégorie peut être supprimée définitivement pour toute l'année, **sa suppression emportant toutes les factures qui lui sont rattachées**.
 - **Multi-années** : les données sont découpées par année (`depenses-2026.json`, `depenses-2027.json`…). Toutes les années sont navigables, lisibles et modifiables ; des années peuvent être supprimées définitivement via un panneau de sélection multiple. L'année courante est créée automatiquement au lancement et l'année suivante peut être préparée d'avance via le bouton `＋`.
 - **Persistance** automatique dans le fichier de l'année affichée après chaque ajout, suppression ou changement de budget, et chargement au démarrage. L'ancien fichier unique `depenses.json` est migré automatiquement vers le format par année au premier lancement.
 
@@ -31,12 +31,11 @@ Budjeckt/
 │   ├── Facture.cs                   #   dépense individuelle (immuable)
 │   ├── Validation.cs                #   règles métier (noms, montants, ids, date mois + année)
 │   └── *Json.cs                     #   DTOs internes de sérialisation JSON
-├── BudjecktMstest/                  # tests MSTest net10.0 (171 tests, parallélisés)
+├── BudjecktMstest/                  # tests MSTest net10.0 (185 tests, parallélisés)
 └── BudjecktFrontend/                # application WPF net10.0-windows
     ├── MainViewModel.cs             # vue modèle MVVM (CommunityToolkit.Mvvm 8.4.0)
     ├── AnneeSelectionnable.cs       # ligne sélectionnable des années à supprimer
     ├── ApercuFacture.cs             # vue d'une facture pour l'historique
-    ├── ApercuCategorie.cs           # ligne du récapitulatif « Dépenses par catégorie »
     ├── Formatage.cs                 # formatage d'affichage des montants
     └── MainWindow.xaml(.cs)         # fenêtre principale WPF
 ```
@@ -48,9 +47,10 @@ Budjeckt/
 - **Suppression d'années** : bouton « Supprimer… » ouvrant un panneau de sélection multiple ; une ou plusieurs années peuvent être cochées puis supprimées définitivement après confirmation. L'année courante supprimée est automatiquement recréée avec les valeurs par défaut.
 - **Ajout d'une dépense** dans le mois affiché : montant (nombre fini strictement positif), catégorie, date, heure optionnelle au format « HH:mm ». Le bouton reste désactivé tant que la saisie est invalide (montant ≦ 0 ou non numérique, heure hors `[00:00, 24:00)`, date hors du mois et de l'année).
 - **Budget mensuel modifiable** (revenue, nombre fini, négatif admis) recalculé immédiatement avec le reste.
-- **Gestion des catégories** : groupbox « Catégories » avec champ de saisie (désactivé si vide) et bouton « + Ajouter » pour ajouter une catégorie à l'année affichée ; récapitulatif « Dépenses par catégorie » trié par montant décroissant (puis par nom), recalculé à chaque mutation.
+- **Gestion des catégories** : groupbox « Catégories » avec champ de saisie (désactivé si vide) et bouton « + Ajouter » pour ajouter une catégorie à l'année affichée (message de succès/erreur dans le groupbox). Une seconde ligne (liste déroulante + bouton « Supprimer ») supprime une catégorie pour toute l'année après confirmation — **toutes les catégories sont supprimables, y compris celles par défaut** : elles figurent toutes dans la liste de suppression, et **la MessageBox de confirmation rappelle que les factures de la catégorie sont supprimées avec elle** (le message de succès précise ensuite leur sort : aucune, une, ou N). **Un mois doit toujours garder au moins une catégorie : la suppression est refusée avec un message si elle viderait un mois** (le chargeur JSON rejette sinon l'année entière, risquant sa perte).
+- **Total de la liste** : dernière ligne de la grille, grisée, en caractères semi-gras et non sélectionnable — elle contient « Total » dans la colonne Catégorie et le montant dans la colonne Montant ; elle suit le filtre (total de la catégorie sélectionnée) et reste visible même liste vide.
 - **Filtre par catégorie**, **tri décroissant** (date, puis heure, puis id) et **suppression** de la dépense sélectionnée.
-- **Barre de synthèse** : total affiché (après filtre), total du mois et reste du budget (vert / rouge).
+- **Barre de synthèse** : total du mois et reste du budget (vert / rouge).
 - **Gestion des erreurs** : messages français non techniques ; un fichier de données corrompu est mis de côté (`depenses.json.corrompu-*.bak`) au lieu d'être écrasé.
 
 ## Prérequis
@@ -68,7 +68,7 @@ Commandes à exécuter depuis la racine du repo (`C:\Users\Terrence\Desktop\Budj
 dotnet build Budjeckt/Budjeckt.slnx
 ```
 
-**Exécution des tests (171 tests, MSTest) :**
+**Exécution des tests (185 tests, MSTest) :**
 
 ```
 dotnet test Budjeckt/Budjeckt.slnx
@@ -130,8 +130,10 @@ Notes sur le format :
 
 - **Les factures sont la source unique de vérité** : la dépense faite par catégorie, le total et le reste du budget ne sont jamais stockés — ils sont systématiquement recalculés depuis les factures (`MonthBudget.RecalculerTotaux`), y compris après un chargement JSON. La valeur de dépense fournie dans le JSON est ignorée.
 - **Ids auto-incrémentés « max + 1 »** : aucun compteur n'est persisté ; le prochain id de catégorie ou de facture est dérivé des ids existants (max + 1). Les ids supprimés ne sont donc jamais réutilisés, même après rechargement.
+- **Suppression de catégorie en cascade** : supprimer une catégorie (`MonthBudget.SupprimerCategorie`, par nom, insensible à la casse) emporte définitivement toutes les factures qui la référencent dans les 12 mois de l'année, et retourne leur nombre (affiché à l'utilisateur). Sans cette cascade, les factures orphelines seraient rejetées au prochain chargement par la validation d'intégrité des références (`IdCategorie`), rendant le fichier invalide ; la cascade garantit qu'un fichier reste valide après toute suppression. Aucune catégorie n'est protégée, y compris les défauts, **sauf la dernière d'un mois : sa suppression est refusée (`ArgumentException`) car un mois sans catégorie rendrait le fichier illisible (voir « Format du fichier »)** ; le même refus est remonté dans l'interface avant la confirmation.
 - **Validation stricte des entrées** (classe `Validation`) : noms non vides et uniques, montants strictement positifs, heure dans `[00:00, 24:00)` si renseignée, dates bornées 1900-2100 et appartenant au mois ET à l'année du mois affiché. La vérification couvre explicitement `NaN` et ±∞ (IEEE 754 : `NaN <= 0` est faux, et un montant comme `1e39` déborde silencieusement vers +∞ en `float`) ainsi que le débordement de la somme des factures d'une catégorie.
 - **DTOs JSON internes séparés du modèle** : `BudjecktJson`, `MonthJson`, `CategoryJson`, `FactureJson` sont des classes internes dédiées à la sérialisation ; le modèle métier (`Budjeckt`, `MonthBudget`, `Facture`) reste indépendant du format de fichier.
+- **Invariants vérifiés à la sauvegarde comme au chargement** : `SauvegarderJson` applique le même `ValiderJson` qu'au chargement avant d'écrire — un état mémoire non conforme (moins de 12 mois, un mois sans catégorie, facture orpheline) lève `InvalidDataException` sans rien écrire, plutôt que de produire un fichier que l'application rejetterait au prochain lancement.
 - **MVVM avec CommunityToolkit** : le frontend sépare la logique UI (XAML) de la logique métier (`MainViewModel`). La vue charge le modèle `BudjecktBackend`, applique les mutations, sauvegarde et met à jour les observables ; les commandes sont liées via `[RelayCommand]` avec `CanExecute` (formulaire d'ajout désactivé tant que la saisie est invalide).
 - **Écriture atomique du fichier** : sauvegarde via fichier temporaire puis `File.Move` (renommage sur le même volume), pour qu'une coupure en plein écriture ne tronque pas le fichier JSON.
 - **Un fichier par année** : les données sont découpées en `depenses-<année>.json` dès la version multi-années. L'année est passée aux mois (`MonthBudget.Annee`) et la résolution des dates par défaut, la validation JSON et le sélecteur de date du frontend en tiennent compte. La classe `ArchivesBudjeckt` centralise la détection des années, la création d'une année vierge, la suppression et la migration de l'ancien `depenses.json`.

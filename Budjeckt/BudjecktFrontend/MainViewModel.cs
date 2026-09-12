@@ -27,6 +27,7 @@ public partial class MainViewModel : ObservableObject
     private string _cheminFichier = string.Empty;
     private readonly string _repertoireDonnees;
     private readonly Func<List<int>, bool>? _confirmerSuppression;
+    private readonly Func<string, int, bool>? _confirmerSuppressionCategorie;
     private Tuple<int, string, float>[] _categoriesMois = Array.Empty<Tuple<int, string, float>>();
 
     /// <summary>
@@ -47,11 +48,11 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Factures affichées dans l'historique (triées de la plus récente à la plus ancienne).</summary>
     public ObservableCollection<ApercuFacture> FacturesAffichees { get; } = new();
 
-    /// <summary>Dépenses cumulées par catégorie du mois affiché (triées par montant décroissant).</summary>
-    public ObservableCollection<ApercuCategorie> TotauxParCategorie { get; } = new();
-
     /// <summary>Catégories du mois affiché, pour le formulaire d'ajout.</summary>
     public ObservableCollection<string> CategoriesAjout { get; } = new();
+
+    /// <summary>Catégories du mois affiché, candidates à la suppression d'une catégorie.</summary>
+    public ObservableCollection<string> CategoriesSuppression { get; } = new();
 
     /// <summary>Options du filtre : « Toutes les catégories » puis chaque catégorie du mois.</summary>
     public ObservableCollection<string> CategoriesFiltre { get; } = new();
@@ -88,6 +89,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private int _indexCategorieAjout = -1;
 
+    /// <summary>Index de la catégorie sélectionnée pour la suppression.</summary>
+    [ObservableProperty]
+    private int _indexCategorieSuppression = -1;
+
     /// <summary>Date sélectionnée pour la nouvelle facture (nulle = date par défaut du mois).</summary>
     [ObservableProperty]
     private DateTime? _dateSaisie;
@@ -120,10 +125,6 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private ApercuFacture? _factureSelectionnee;
 
-    /// <summary>Total des factures actuellement affichées (après filtre).</summary>
-    [ObservableProperty]
-    private string _totalAfficheTexte = string.Empty;
-
     /// <summary>Total des dépenses du mois affiché (sans filtre).</summary>
     [ObservableProperty]
     private string _totalMoisTexte = string.Empty;
@@ -150,9 +151,14 @@ public partial class MainViewModel : ObservableObject
     /// Si <c>null</c>, aucune suppression n'est confirmée : la commande de suppression refuse
     /// alors d'agir (échec sûr), ce qui permet de tester le flux sans interface.
     /// </param>
-    public MainViewModel(Func<List<int>, bool>? confirmerSuppression = null)
+    /// <param name="confirmerSuppressionCategorie">
+    /// Fonction de confirmation de la suppression d'une catégorie et de ses factures (ex.
+    /// une MessageBox « Oui/Non »). Si <c>null</c>, aucune suppression n'est confirmée.
+    /// </param>
+    public MainViewModel(Func<List<int>, bool>? confirmerSuppression = null, Func<string, int, bool>? confirmerSuppressionCategorie = null)
     {
         _confirmerSuppression = confirmerSuppression;
+        _confirmerSuppressionCategorie = confirmerSuppressionCategorie;
         _repertoireDonnees = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "Budjeckt");
@@ -630,7 +636,8 @@ public partial class MainViewModel : ObservableObject
 
     private bool PeutSupprimerFacture()
     {
-        return FactureSelectionnee is not null;
+        // La ligne « Total » est une fausse ligne de synthèse : jamais supprimable.
+        return FactureSelectionnee is { EstTotal: false };
     }
 
     /// <summary>
@@ -639,14 +646,14 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(PeutSupprimerFacture))]
     private void SupprimerFacture()
     {
-        if (FactureSelectionnee is null)
+        if (FactureSelectionnee is not { EstTotal: false, Source: { } facture })
         {
             return;
         }
 
         try
         {
-            MoisCourant.SupprimerFacture(FactureSelectionnee.Source.Id);
+            MoisCourant.SupprimerFacture(facture.Id);
             Sauvegarder();
             _erreurAction = string.Empty;
             MessageErreur = string.Empty;
@@ -751,17 +758,121 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private bool PeutSupprimerCategorie()
+    {
+        return IndexCategorieSuppression >= 0 && IndexCategorieSuppression < CategoriesSuppression.Count;
+    }
+
+    /// <summary>
+    /// Supprime définitivement une catégorie de dépense pour toute l'année affichée ainsi que
+    /// toutes ses factures, puis sauvegarde. La vérification d'existence est faite sur les
+    /// 12 mois avant la première mutation, et une confirmation est demandée avant toute action.
+    /// Refusée si la catégorie est la seule d'un mois : refus identique à la garde backend
+    /// (`MonthBudget.SupprimerCategorie`), affiché avant la confirmation.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(PeutSupprimerCategorie))]
+    private void SupprimerCategorie()
+    {
+        if (IndexCategorieSuppression < 0 || IndexCategorieSuppression >= CategoriesSuppression.Count)
+        {
+            return;
+        }
+
+        string nom = CategoriesSuppression[IndexCategorieSuppression];
+
+        // Pré-validation sur les 12 mois avant toute mutation : comme pour l'ajout, une
+        // exception en cours de boucle ne doit laisser aucun mois partiellement modifié.
+        int nbMois = 0;
+        int nbFactures = 0;
+        List<string> moisQuiPerdraientTouteCategorie = new();
+        foreach (MonthBudget mois in _budjeckt.Months)
+        {
+            Tuple<int, string, float>? categorie = mois.ExpenseCategories
+                .FirstOrDefault(categorie => string.Equals(categorie.Item2, nom, StringComparison.OrdinalIgnoreCase));
+            if (categorie is null)
+            {
+                continue;
+            }
+
+            nbMois++;
+            nbFactures += mois.Factures.Count(facture => facture.IdCategorie == categorie.Item1);
+
+            if (mois.ExpenseCategories.Length == 1)
+            {
+                moisQuiPerdraientTouteCategorie.Add(mois.Nom);
+            }
+        }
+
+        if (nbMois == 0)
+        {
+            AfficherErreurAction($"La catégorie « {nom} » n'existe pas dans l'année affichée.");
+            return;
+        }
+
+        // Un mois doit toujours garder au moins une catégorie (le chargeur JSON rejette
+        // l'année entière sinon) : on refuse donc avant la confirmation.
+        if (moisQuiPerdraientTouteCategorie.Count > 0)
+        {
+            AfficherErreurAction(
+                moisQuiPerdraientTouteCategorie.Count == 1
+                    ? $"Impossible de supprimer « {nom} » : ce serait la dernière catégorie de {moisQuiPerdraientTouteCategorie[0]}."
+                    : $"Impossible de supprimer « {nom} » : ce serait la dernière catégorie des mois suivants : {string.Join(", ", moisQuiPerdraientTouteCategorie)}.");
+            return;
+        }
+
+        if (_confirmerSuppressionCategorie is not { } confirmer || !confirmer(nom, nbFactures))
+        {
+            return;
+        }
+
+        try
+        {
+            int totalSupprimees = 0;
+            foreach (MonthBudget mois in _budjeckt.Months)
+            {
+                if (mois.ExpenseCategories.Any(categorie =>
+                        string.Equals(categorie.Item2, nom, StringComparison.OrdinalIgnoreCase)))
+                {
+                    totalSupprimees += mois.SupprimerCategorie(nom);
+                }
+            }
+
+            if (Sauvegarder())
+            {
+                MessageSucces = totalSupprimees switch
+                {
+                    0 => $"Catégorie « {nom} » supprimée. Aucune facture associée.",
+                    1 => $"Catégorie « {nom} » supprimée avec sa facture.",
+                    _ => $"Catégorie « {nom} » supprimée avec ses {totalSupprimees} factures."
+                };
+            }
+
+            ActualiserListesCategories(false);
+            ActualiserSynthese();
+            ActualiserListe();
+        }
+        catch (ArgumentException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+        catch (InvalidDataException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+    }
+
     /// <summary>
     /// Reconstruit l'état du mois affiché : catégories, filtre, date par défaut, budget
-    /// puis liste et synthèse. Appelé à chaque changement de mois.
+    /// puis liste et synthèse. Appelé à chaque changement de mois ou d'année.
     /// </summary>
     private void ActualiserEtatsMois()
     {
         MonthBudget mois = MoisCourant;
         ActualiserListesCategories(true);
 
-        CategoriesDisponibles = _categoriesMois.Length > 0;
-
+        // Le message de succès décrit une action sur l'année affichée : il devient
+        // trompeur dès qu'on change de mois ou d'année, on le réinitialise donc ici.
+        MessageSucces = string.Empty;
         DateSaisie = DateParDefaut();
         DateMin = new DateTime(mois.Annee, 1, 1);
         DateMax = new DateTime(mois.Annee, 12, 31);
@@ -779,6 +890,7 @@ public partial class MainViewModel : ObservableObject
     private void ActualiserListesCategories(bool reinitialiserIndices)
     {
         _categoriesMois = MoisCourant.ExpenseCategories;
+        CategoriesDisponibles = _categoriesMois.Length > 0;
 
         CategoriesAjout.Clear();
         foreach (Tuple<int, string, float> categorie in _categoriesMois)
@@ -793,28 +905,42 @@ public partial class MainViewModel : ObservableObject
             CategoriesFiltre.Add(categorie.Item2);
         }
 
+        CategoriesSuppression.Clear();
+        foreach (Tuple<int, string, float> categorie in _categoriesMois)
+        {
+            CategoriesSuppression.Add(categorie.Item2);
+        }
+
         if (reinitialiserIndices)
         {
             IndexCategorieAjout = 0;
             IndexCategorieFiltre = 0;
+            IndexCategorieSuppression = 0;
         }
         else
         {
-            if (IndexCategorieAjout >= CategoriesAjout.Count)
-            {
-                IndexCategorieAjout = CategoriesAjout.Count - 1;
-            }
-
-            if (IndexCategorieFiltre >= CategoriesFiltre.Count)
-            {
-                IndexCategorieFiltre = CategoriesFiltre.Count - 1;
-            }
+            IndexCategorieAjout = RecalibrerIndex(IndexCategorieAjout, CategoriesAjout.Count);
+            IndexCategorieFiltre = RecalibrerIndex(IndexCategorieFiltre, CategoriesFiltre.Count);
+            IndexCategorieSuppression = RecalibrerIndex(IndexCategorieSuppression, CategoriesSuppression.Count);
         }
     }
 
     /// <summary>
+    /// Récale un index de sélection sur la taille actuelle de sa liste : -1 si la liste
+    /// est vide, sinon l'index restreint à l'intervalle [0, taille-1]. Garantit que la
+    /// sélection reste valide que la liste ait grandi ou rétréci.
+    /// </summary>
+    /// <param name="index">Index de sélection avant recalibrage.</param>
+    /// <param name="taille">Nombre d'éléments de la liste.</param>
+    /// <returns>Index recalibré : -1 si la liste est vide, sinon borné à [0, taille-1].</returns>
+    private static int RecalibrerIndex(int index, int taille)
+    {
+        return taille == 0 ? -1 : Math.Clamp(index, 0, taille - 1);
+    }
+
+    /// <summary>
     /// Reconstruit la liste des factures affichées (filtre appliqué, tri de la plus
-    /// récente à la plus ancienne) et le total affiché.
+    /// récente à la plus ancienne) et la ligne « Total » de synthèse, toujours en dernier.
     /// </summary>
     private void ActualiserListe()
     {
@@ -830,6 +956,9 @@ public partial class MainViewModel : ObservableObject
         }
 
         FacturesAffichees.Clear();
+        // Cumul en double pour ne pas saturer a +infini en flottant a mi-accumulation
+        // (parite avec le garde d'overflow du backend dans RecalculerTotaux).
+        double total = 0d;
         foreach (Facture facture in source
                      .OrderByDescending(f => f.Date)
                      .ThenByDescending(f => f.Heure)
@@ -837,9 +966,11 @@ public partial class MainViewModel : ObservableObject
         {
             string nomCategorie = nomsCategories.TryGetValue(facture.IdCategorie, out string? nom) ? nom : "?";
             FacturesAffichees.Add(new ApercuFacture(facture, nomCategorie));
+            total += facture.Montant;
         }
 
-        TotalAfficheTexte = Formatage.Montant(FacturesAffichees.Sum(apercu => apercu.Source.Montant));
+        // Ligne « Total » : toujours presente (meme liste vide), affichee en dernier.
+        FacturesAffichees.Add(ApercuFacture.CreeTotal((float)total));
     }
 
     /// <summary>
@@ -851,14 +982,6 @@ public partial class MainViewModel : ObservableObject
         TotalMoisTexte = Formatage.Montant(mois.TotalExpenses);
         ResteTexte = Formatage.Montant(mois.BudgetRemaining);
         RestePositif = mois.BudgetRemaining >= 0f;
-
-        TotauxParCategorie.Clear();
-        foreach (Tuple<int, string, float> categorie in mois.ExpenseCategories
-                     .OrderByDescending(categorie => categorie.Item3)
-                     .ThenBy(categorie => categorie.Item2, StringComparer.CurrentCulture))
-        {
-            TotauxParCategorie.Add(new ApercuCategorie(categorie.Item2, categorie.Item3));
-        }
     }
 
     /// <summary>
@@ -907,6 +1030,12 @@ public partial class MainViewModel : ObservableObject
     partial void OnIndexCategorieAjoutChanged(int value)
     {
         AjouterFactureCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Répercute un changement de sélection sur la disponibilité de la suppression de catégorie.</summary>
+    partial void OnIndexCategorieSuppressionChanged(int value)
+    {
+        SupprimerCategorieCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Répercute un changement de date sur la disponibilité du bouton d'ajout.</summary>

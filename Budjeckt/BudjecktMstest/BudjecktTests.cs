@@ -115,6 +115,48 @@ public class BudjecktTests
     }
 
     [TestMethod]
+    public void SauvegarderJson_MoisSansCatégories_LèveInvalidDataException_SansÉcriture()
+    {
+        string chemin = CreerCheminTemporaire();
+        try
+        {
+            Bud budjeckt = new("2026");
+            MonthBudget[] mois = CreerDouzeMois();
+            mois[0] = new MonthBudget("Janvier", 0f, Array.Empty<Tuple<int, string, float>>(), Enumerable.Empty<Facture>());
+            budjeckt.Months = mois;
+
+            Assert.ThrowsExactly<InvalidDataException>(() => budjeckt.SauvegarderJson(chemin));
+
+            Assert.IsFalse(File.Exists(chemin),
+                "Un état mémoire non conforme au chargeur ne doit produire aucun fichier");
+        }
+        finally
+        {
+            SupprimerFichier(chemin);
+        }
+    }
+
+    [TestMethod]
+    public void SauvegarderJson_MoinsDeDouzeMois_LèveInvalidDataException_SansÉcriture()
+    {
+        string chemin = CreerCheminTemporaire();
+        try
+        {
+            Bud budjeckt = new("2026");
+            budjeckt.Months = CreerDouzeMois()[..11];
+
+            Assert.ThrowsExactly<InvalidDataException>(() => budjeckt.SauvegarderJson(chemin));
+
+            Assert.IsFalse(File.Exists(chemin),
+                "Une année sans exactement 12 mois ne doit produire aucun fichier");
+        }
+        finally
+        {
+            SupprimerFichier(chemin);
+        }
+    }
+
+    [TestMethod]
     public void ChargerJson_FichierManquant_GardeLesDonnéesParDéfaut()
     {
         string chemin = CreerCheminTemporaire();
@@ -448,6 +490,38 @@ public class BudjecktTests
             Assert.AreEqual(25.5f, janvier.ExpenseCategories.First(c => c.Item1 == 4).Item3, 0.001f);
             Assert.AreEqual(60f, janvier.ExpenseCategories.First(c => c.Item1 == 5).Item3, 0.001f);
             Assert.IsTrue(janvier.ExpenseCategories.Any(c => c.Item1 == 8 && c.Item2 == "Assurance"));
+        }
+        finally
+        {
+            SupprimerFichier(chemin);
+        }
+    }
+
+    [TestMethod]
+    public void SauvegarderPuisCharger_MoisÀUneSeuleCatégorie_RechargeSansErreur()
+    {
+        string chemin = CreerCheminTemporaire();
+        try
+        {
+            Bud budjeckt = new("2026");
+            budjeckt.Months = CreerDouzeMois();
+            foreach (MonthBudget mois in budjeckt.Months)
+            {
+                string[] noms = mois.ExpenseCategories.Select(categorie => categorie.Item2).ToArray();
+                foreach (string nom in noms.Skip(1))
+                {
+                    mois.SupprimerCategorie(nom);
+                }
+            }
+
+            budjeckt.SauvegarderJson(chemin);
+
+            Bud charge = new();
+            charge.ChargerJson(chemin);
+
+            Assert.HasCount(12, charge.Months);
+            Assert.IsTrue(charge.Months.All(mois => mois.ExpenseCategories.Length == 1),
+                "Un fichier dont chaque mois garde une seule catégorie doit se recharger sans être rejeté");
         }
         finally
         {

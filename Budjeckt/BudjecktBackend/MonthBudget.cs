@@ -136,6 +136,51 @@ public class MonthBudget
     }
 
     /// <summary>
+    /// Supprime définitivement une catégorie de dépense (par nom, comparaison insensible
+    /// à la casse) ainsi que toutes les factures qui la référencent, puis recalcule
+    /// les dépenses par catégorie, le total et le reste.
+    /// Un mois doit toujours garder au moins une catégorie : la dernière ne peut pas être
+    /// supprimée, sinon le chargement du fichier JSON rejetterait l'année entière.
+    /// </summary>
+    /// <param name="nom">Nom de la catégorie à supprimer.</param>
+    /// <returns>Nombre de factures supprimées avec la catégorie.</returns>
+    /// <exception cref="ArgumentException">Si le nom est vide, si la catégorie n'existe
+    /// pas dans le mois ou si elle est la seule du mois. Aucune mutation n'est effectuée
+    /// dans ce cas.</exception>
+    public int SupprimerCategorie(string nom)
+    {
+        Validation.VerifierNomNonVide(nom);
+
+        Tuple<int, string, float>? categorie = _expenseCategories
+            .FirstOrDefault(categorie => string.Equals(categorie.Item2, nom, StringComparison.OrdinalIgnoreCase));
+
+        if (categorie is null)
+        {
+            throw new ArgumentException($"La catégorie \"{nom}\" n'existe pas dans le mois.", nameof(nom));
+        }
+
+        if (_expenseCategories.Length == 1)
+        {
+            throw new ArgumentException(
+                $"La catégorie \"{nom}\" est la seule du mois : la supprimer laisserait le mois sans catégorie.", nameof(nom));
+        }
+
+        int idCategorie = categorie.Item1;
+
+        // La suppression de la catégorie emporte ses factures : sans cela, des factures
+        // orphelines référenceraient une catégorie inconnue et seraient rejetées au prochain chargement.
+        int nbFacturesSupprimees = _factures.RemoveAll(facture => facture.IdCategorie == idCategorie);
+
+        _expenseCategories = _expenseCategories
+            .Where(categorie => categorie.Item1 != idCategorie)
+            .ToArray();
+
+        RecalculerTotaux();
+
+        return nbFacturesSupprimees;
+    }
+
+    /// <summary>
     /// Ajoute une facture à une catégorie de dépense (par id) sans préciser la date :
     /// la date par défaut est aujourd'hui si aujourd'hui appartient au mois, sinon le 1er jour du mois.
     /// </summary>

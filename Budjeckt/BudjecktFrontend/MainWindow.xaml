@@ -107,97 +107,93 @@
             <!-- Zone de saisie + budget -->
             <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Margin="0,0,12,0">
                 <StackPanel>
-                <GroupBox Header="Nouvelle dépense" Padding="10">
-                    <StackPanel>
-                        <TextBlock Text="Montant" Margin="0,0,0,3"/>
-                        <TextBox Text="{Binding MontantSaisi, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Valeur numérique strictement positive (ex. 12,50)"/>
-                        <TextBlock Text="Catégorie" Margin="0,10,0,3"/>
-<ComboBox ItemsSource="{Binding CategoriesAjout}"
-                          SelectedIndex="{Binding IndexCategorieAjout}"
-                          IsEnabled="{Binding CategoriesDisponibles}"/>
-                        <TextBlock Text="Date" Margin="0,10,0,3"/>
-                        <DatePicker SelectedDate="{Binding DateSaisie}"
-                                    DisplayDateStart="{Binding DateMin}"
-                                    DisplayDateEnd="{Binding DateMax}"
-                                    SelectedDateFormat="Short"/>
-                        <TextBlock Text="Heure (optionnelle, HH:mm)" Margin="0,10,0,3"/>
-                        <TextBox Text="{Binding HeureSaisie, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Format HH:mm, ex. 14:30. Laisser vide si aucune heure."/>
-                        <TextBlock Text="{Binding MessageErreur}"
-                                   Foreground="#C62828" TextWrapping="Wrap"
-                                   MinHeight="32" Margin="0,8,0,0"/>
-                        <Button Content="Ajouter la dépense"
-                                Command="{Binding AjouterFactureCommand}"
-                                Height="34" FontSize="14" FontWeight="SemiBold"
-                                Background="#2E7D32" Foreground="White" Padding="10,0"/>
-                    </StackPanel>
-                </GroupBox>
+                    <GroupBox Header="Nouvelle dépense" Padding="10">
+                        <StackPanel>
+                            <TextBlock Text="Montant" Margin="0,0,0,3"/>
+                            <TextBox Text="{Binding MontantSaisi, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Valeur numérique strictement positive (ex. 12,50)"/>
+                            <TextBlock Text="Catégorie" Margin="0,10,0,3"/>
+                            <ComboBox ItemsSource="{Binding CategoriesAjout}"
+                                      SelectedIndex="{Binding IndexCategorieAjout}"
+                                      IsEnabled="{Binding CategoriesDisponibles}"/>
+                            <TextBlock Text="Date" Margin="0,10,0,3"/>
+                            <DatePicker SelectedDate="{Binding DateSaisie}"
+                                        DisplayDateStart="{Binding DateMin}"
+                                        DisplayDateEnd="{Binding DateMax}"
+                                        SelectedDateFormat="Short"/>
+                            <TextBlock Text="Heure (optionnelle, HH:mm)" Margin="0,10,0,3"/>
+                            <TextBox Text="{Binding HeureSaisie, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Format HH:mm, ex. 14:30. Laisser vide si aucune heure."/>
+                            <TextBlock Text="{Binding MessageErreur}"
+                                       Foreground="#C62828" TextWrapping="Wrap"
+                                       MinHeight="32" Margin="0,8,0,0"/>
+                            <Button Content="Ajouter la dépense"
+                                    Command="{Binding AjouterFactureCommand}"
+                                    Height="34" FontSize="14" FontWeight="SemiBold"
+                                    Background="#2E7D32" Foreground="White" Padding="10,0"/>
+                        </StackPanel>
+                    </GroupBox>
 
-                <GroupBox Header="Budget du mois" Padding="10" Margin="0,10,0,0">
-                    <StackPanel>
-                        <TextBlock Text="Revenue (budget)" Margin="0,0,0,3"/>
-                        <TextBox Text="{Binding RevenueSaisi, UpdateSourceTrigger=LostFocus}"/>
-                        <Button Content="Enregistrer le budget"
-                                Command="{Binding EnregistrerBudgetCommand}"
-                                Margin="0,8,0,0" Height="30"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                            <TextBlock Text="Total dépenses : " Foreground="#424242"/>
-                            <TextBlock Text="{Binding TotalMoisTexte}" FontWeight="SemiBold"/>
+                    <GroupBox Header="Budget du mois" Padding="10" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Revenue (budget)" Margin="0,0,0,3"/>
+                            <TextBox Text="{Binding RevenueSaisi, UpdateSourceTrigger=LostFocus}"/>
+                            <Button Content="Enregistrer le budget"
+                                    Command="{Binding EnregistrerBudgetCommand}"
+                                    Margin="0,8,0,0" Height="30"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <TextBlock Text="Total dépenses : " Foreground="#424242"/>
+                                <TextBlock Text="{Binding TotalMoisTexte}" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <TextBlock Text="Reste : " Foreground="#424242"/>
+                                <TextBlock Text="{Binding ResteTexte}" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#2E7D32"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding RestePositif}" Value="False">
+                                                    <Setter Property="Foreground" Value="#C62828"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <TextBlock Text="Reste : " Foreground="#424242"/>
-                            <TextBlock Text="{Binding ResteTexte}" FontWeight="SemiBold">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="#2E7D32"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding RestePositif}" Value="False">
-                                                <Setter Property="Foreground" Value="#C62828"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </StackPanel>
-                    </StackPanel>
-                </GroupBox>
+                    </GroupBox>
 
-                <GroupBox Header="Catégories" Padding="10" Margin="0,10,0,0">
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBox Text="{Binding NouvelleCategorieSaisie, UpdateSourceTrigger=PropertyChanged}"
-                                     AutomationProperties.Name="Nouvelle catégorie"
-                                     ToolTip="Nom de la catégorie à ajouter pour toute l'année"
-                                     MaxLength="100"
-                                     MinWidth="150"/>
-                            <Button Content="+ Ajouter"
-                                    Command="{Binding AjouterCategorieCommand}"
-                                    AutomationProperties.Name="Ajouter une catégorie"
-                                    Margin="6,0,0,0" Height="26" Padding="10,0"/>
+                    <GroupBox Header="Catégories" Padding="10" Margin="0,10,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBox Text="{Binding NouvelleCategorieSaisie, UpdateSourceTrigger=PropertyChanged}"
+                                         AutomationProperties.Name="Nouvelle catégorie"
+                                         ToolTip="Nom de la catégorie à ajouter pour toute l'année"
+                                         MaxLength="100"
+                                         MinWidth="150"/>
+                                <Button Content="+ Ajouter"
+                                        Command="{Binding AjouterCategorieCommand}"
+                                        AutomationProperties.Name="Ajouter une catégorie"
+                                        Margin="6,0,0,0" Height="26" Padding="10,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <ComboBox ItemsSource="{Binding CategoriesSuppression}"
+                                          SelectedIndex="{Binding IndexCategorieSuppression}"
+                                          AutomationProperties.Name="Catégorie à supprimer"
+                                          IsEnabled="{Binding CategoriesDisponibles}"
+                                          ToolTip="Catégorie à supprimer pour toute l'année, avec ses factures"
+                                          MinWidth="150"/>
+                                <Button Content="Supprimer"
+                                        Command="{Binding SupprimerCategorieCommand}"
+                                        AutomationProperties.Name="Supprimer une catégorie"
+                                        Margin="6,0,0,0" Height="26" Padding="10,0"
+                                        Background="#C62828" Foreground="White"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding MessageSucces}"
+                                       Foreground="#2E7D32" TextWrapping="Wrap"
+                                       Margin="0,8,0,0"/>
                         </StackPanel>
-                        <Separator Margin="0,10,0,8"/>
-                        <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding TotauxParCategorie}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="0,2">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{Binding Nom}" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding MontantTexte}" FontWeight="SemiBold"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                        <TextBlock Text="{Binding MessageSucces}"
-                                   Foreground="#2E7D32" TextWrapping="Wrap"
-                                   Margin="0,8,0,0"/>
-                    </StackPanel>
-                </GroupBox>
+                    </GroupBox>
                 </StackPanel>
             </ScrollViewer>
 
@@ -224,11 +220,24 @@
                           CanUserAddRows="False"
                           CanUserDeleteRows="False"
                           CanUserReorderColumns="False"
+                          CanUserSortColumns="False"
                           IsReadOnly="True"
                           SelectionMode="Single"
                           HeadersVisibility="Column"
                           GridLinesVisibility="Horizontal"
                           BorderBrush="#BDBDBD" BorderThickness="1">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <!-- La ligne « Total » est mise en évidence et rendue non sélectionnable. -->
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding EstTotal}" Value="True">
+                                    <Setter Property="Background" Value="#ECEFF1"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="IsEnabled" Value="False"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Date" Binding="{Binding DateTexte}" Width="130"/>
                         <DataGridTextColumn Header="Heure" Binding="{Binding HeureTexte}" Width="70"/>
@@ -256,12 +265,10 @@
         <!-- Zone de synthèse -->
         <Border Grid.Row="2" Margin="0,10,0,0" Padding="12" Background="#ECEFF1" CornerRadius="6">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Total affiché : " FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding TotalAfficheTexte}" Margin="0,0,24,0"/>
-                <TextBlock Text="Total du mois : " FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding TotalMoisTexte}" Margin="0,0,24,0"/>
-                <TextBlock Text="Reste du budget : " FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding ResteTexte}"/>
+                <TextBlock Text="Total du mois : " FontWeight="SemiBold" Margin="0,0,4,0"/>
+                <TextBlock Text="{Binding TotalMoisTexte}" FontWeight="SemiBold" Margin="0,0,24,0"/>
+                <TextBlock Text="Reste du budget : " FontWeight="SemiBold" Margin="0,0,4,0"/>
+                <TextBlock Text="{Binding ResteTexte}" FontWeight="SemiBold"/>
             </StackPanel>
         </Border>
     </Grid>

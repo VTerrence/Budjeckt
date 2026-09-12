@@ -133,9 +133,19 @@ public class Budjeckt
     /// construction du DTO, sérialisation puis écriture du fichier.
     /// </summary>
     /// <param name="chemin">Chemin du fichier JSON.</param>
+    /// <exception cref="InvalidDataException">Si l'état mémoire ne satisfait pas les mêmes
+    /// invariants que le chargement (exactement 12 mois, au moins une catégorie par mois,
+    /// factures rattachées à des catégories existantes). Rien n'est écrit dans ce cas.</exception>
     public void SauvegarderJson(string chemin)
     {
-        string contenu = Serialiser();
+        // Le même contrôle structurel qu'au chargement (ValiderJson) est appliqué avant
+        // l'écriture : un état mémoire invalide (ex. un mois sans catégorie via le setter
+        // Months) ne doit jamais produire un fichier que l'application rejetterait elle-même
+        // au prochain lancement — quarantaine et perte de l'année à la clé.
+        BudjecktJson donnees = ConstruireJson();
+        ValiderJson(donnees);
+
+        string contenu = JsonSerializer.Serialize(donnees);
         EcrireFichier(chemin, contenu);
     }
 
@@ -340,14 +350,6 @@ public class Budjeckt
 
         _annee = donnees.Annee!;
         _mois = nouveauxMois;
-    }
-
-    /// <summary>
-    /// Sérialise le modèle de l'année sous forme de chaîne JSON.
-    /// </summary>
-    private string Serialiser()
-    {
-        return JsonSerializer.Serialize(ConstruireJson());
     }
 
     /// <summary>
