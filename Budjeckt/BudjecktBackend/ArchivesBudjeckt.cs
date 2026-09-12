@@ -14,7 +14,7 @@ public static class ArchivesBudjeckt
     private const int AnneeMin = 1900;
 
     /// <summary>Borne supérieure (inclusive) de la plage d'années plausibles.</summary>
-    private const int AnneeMax = 2100;
+    private const int AnneeMax = 2200;
 
     /// <summary>Année actuelle (horloge système).</summary>
     public static int AnneeCourante() => DateTime.Today.Year;
@@ -22,7 +22,7 @@ public static class ArchivesBudjeckt
     /// <summary>
     /// Retourne la liste des années disponibles dans le dossier, triées par ordre décroissant.
     /// Seuls les fichiers <c>depenses-&lt;année&gt;.json</c> dont l'année est un nombre entier
-    /// dans la plage plausible (1900–2100) sont retenus.
+    /// dans la plage plausible (1900–2200) sont retenus.
     /// </summary>
     /// <param name="dossier">Chemin du dossier de données.</param>
     public static List<int> AnneesExistantes(string dossier)
@@ -88,7 +88,7 @@ public static class ArchivesBudjeckt
     /// <summary>
     /// Supprime définitivement le fichier de données de l'année demandée
     /// (<c>depenses-&lt;année&gt;.json</c>). Ne fait rien si l'année est hors de la plage
-    /// plausible (1900-2100), si le fichier est absent, ou si l'accès au fichier échoue.
+    /// plausible (1900-2200), si le fichier est absent, ou si l'accès au fichier échoue.
     /// </summary>
     /// <param name="dossier">Chemin du dossier de données.</param>
     /// <param name="annee">Année à supprimer.</param>

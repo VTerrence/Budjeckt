@@ -163,7 +163,7 @@ public class ValidationTests
     public void VerifierDatePlausible_AnnéeExtrême_LèveArgumentException()
     {
         Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierDatePlausible(new DateTime(1899, 1, 1)));
-        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierDatePlausible(new DateTime(2101, 1, 1)));
+        Assert.ThrowsExactly<ArgumentException>(() => Validation.VerifierDatePlausible(new DateTime(2201, 1, 1)));
     }
 
     [TestMethod]
@@ -181,7 +181,7 @@ public class ValidationTests
     [TestMethod]
     public void VerifierDatePlausible_AnnéeBorneMaximale_NeLèveRien()
     {
-        Validation.VerifierDatePlausible(new DateTime(2100, 12, 31));
+        Validation.VerifierDatePlausible(new DateTime(2200, 12, 31));
     }
 
     [TestMethod]

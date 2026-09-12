@@ -55,7 +55,7 @@ public class Budjeckt
             string contenu = File.ReadAllText(chemin);
             BudjecktJson donnees = Deserialiser(contenu);
             int? annee = int.TryParse(donnees?.Annee?.Trim(), out int valeur) ? valeur : null;
-            return annee is >= 1900 and <= 2100 ? annee : null;
+            return annee is >= 1900 and <= 2200 ? annee : null;
         }
         catch (InvalidDataException)
         {

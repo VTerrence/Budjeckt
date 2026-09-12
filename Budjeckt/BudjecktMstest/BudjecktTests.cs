@@ -225,7 +225,7 @@ public class BudjecktTests
     [TestMethod]
     public void ChargerJson_AnnéeHorsPlageHaute_LèveInvalidDataException()
     {
-        VerifierChargementInvalide(CreerJsonAnnée(annee: "2200"));
+        VerifierChargementInvalide(CreerJsonAnnée(annee: "2201"));
     }
 
     [TestMethod]

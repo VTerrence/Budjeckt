@@ -56,7 +56,7 @@ public class ArchivesBudjecktTests
         File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-1850.json"), "{}");
 
         Assert.IsFalse(ArchivesBudjeckt.SupprimerAnnee(_répertoireTemporaire!, 1850));
-        Assert.IsFalse(ArchivesBudjeckt.SupprimerAnnee(_répertoireTemporaire!, 2200));
+        Assert.IsFalse(ArchivesBudjeckt.SupprimerAnnee(_répertoireTemporaire!, 2201));
         Assert.IsTrue(File.Exists(Path.Combine(_répertoireTemporaire!, "depenses-1850.json")), "Aucun fichier ne doit être supprimé hors plage");
     }
 
@@ -162,7 +162,7 @@ public class ArchivesBudjecktTests
         File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses.json"), "{}");
         File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-abc.json"), "{}");
         File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-1899.json"), "{}");
-        File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-2101.json"), "{}");
+        File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-2201.json"), "{}");
         File.WriteAllText(Path.Combine(_répertoireTemporaire!, "autres.json"), "{}");
         File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-2027.json"), "{}");
 
@@ -175,11 +175,11 @@ public class ArchivesBudjecktTests
     public void AnneesExistantes_AnnéesAuxBornesDeLaPlage_Listées()
     {
         File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-1900.json"), "{}");
-        File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-2100.json"), "{}");
+        File.WriteAllText(Path.Combine(_répertoireTemporaire!, "depenses-2200.json"), "{}");
 
         List<int> annees = ArchivesBudjeckt.AnneesExistantes(_répertoireTemporaire!);
 
-        Assert.IsTrue(new[] { 2100, 1900 }.SequenceEqual(annees));
+        Assert.IsTrue(new[] { 2200, 1900 }.SequenceEqual(annees));
     }
 
     [TestMethod]

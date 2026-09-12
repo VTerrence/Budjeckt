@@ -104,14 +104,14 @@ public static class Validation
     }
 
     /// <summary>
-    /// Indique si la date est plausible (année entre 1900 et 2100 inclus).
+    /// Indique si la date est plausible (année entre 1900 et 2200 inclus).
     /// Fait office de source unique des bornes, réutilisée par <c>Budjeckt.ValiderJson</c>.
     /// </summary>
     /// <param name="date">Date à vérifier.</param>
     /// <returns><c>true</c> si plausible, sinon <c>false</c>.</returns>
     internal static bool DateEstPlausible(DateTime date)
     {
-        return date.Year is >= 1900 and <= 2100;
+        return date.Year is >= 1900 and <= 2200;
     }
 
     /// <summary>
