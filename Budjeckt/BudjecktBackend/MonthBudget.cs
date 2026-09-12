@@ -290,6 +290,38 @@ public class MonthBudget
     }
 
     /// <summary>
+    /// Supprime définitivement plusieurs factures du mois (par ids). La liste est dédoublonnée
+    /// et tous les ids sont vérifiés AVANT toute mutation : si un id est inconnu, aucune facture
+    /// n'est supprimée (transactionnalité, même garde que <see cref="SupprimerCategorie"/>).
+    /// Un seul recalcul des totaux est effectué pour l'ensemble supprimé.
+    /// </summary>
+    /// <param name="ids">Identifiants des factures à supprimer.</param>
+    /// <returns>Nombre de factures supprimées.</returns>
+    /// <exception cref="ArgumentNullException">Si <paramref name="ids"/> est <c>null</c>.</exception>
+    /// <exception cref="ArgumentException">Si la liste est vide ou si un id ne correspond à
+    /// aucune facture. Aucune mutation n'est effectuée dans ce cas.</exception>
+    public int SupprimerFactures(IReadOnlyCollection<int> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        if (ids.Count == 0)
+        {
+            throw new ArgumentException("Aucun id de facture à supprimer.", nameof(ids));
+        }
+
+        List<int> idsUniques = ids.Distinct().ToList();
+        List<int> idsExistants = _factures.Select(facture => facture.Id).ToList();
+        foreach (int id in idsUniques)
+        {
+            Validation.VerifierFactureExiste(id, idsExistants);
+        }
+
+        _factures.RemoveAll(facture => idsUniques.Contains(facture.Id));
+        RecalculerTotaux();
+
+        return idsUniques.Count;
+    }
+
+    /// <summary>
     /// Recalcule et met à jour le montant dépensé de chaque catégorie à partir des factures.
     /// </summary>
     private void MettreAJourDepensesCategories()

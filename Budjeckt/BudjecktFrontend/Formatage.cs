@@ -14,6 +14,17 @@ internal static class Formatage
     /// <returns>Chaîne prête à afficher.</returns>
     internal static string Montant(float valeur)
     {
+        return Montant((double)valeur);
+    }
+
+    /// <summary>
+    /// Formate un montant en euros avec deux décimales selon la culture courante (ex. « 1 250,00 € »),
+    /// sans perte de précision sur les cumuls calculés en double.
+    /// </summary>
+    /// <param name="valeur">Montant à formater.</param>
+    /// <returns>Chaîne prête à afficher.</returns>
+    internal static string Montant(double valeur)
+    {
         return valeur.ToString("N2", CultureInfo.CurrentCulture) + " €";
     }
 }

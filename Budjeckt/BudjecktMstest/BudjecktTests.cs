@@ -588,6 +588,35 @@ public class BudjecktTests
     }
 
     [TestMethod]
+    public void SauvegarderPuisCharger_AprèsSuppressionMultiple_RechargeLesFacturesRestantes()
+    {
+        string chemin = CreerCheminTemporaire();
+        try
+        {
+            Bud budjeckt = new("2026");
+            budjeckt.Months = CreerDouzeMois();
+            budjeckt.Months[0].AjouterFacture(1, 100f, new DateTime(2026, 1, 10));
+            budjeckt.Months[0].AjouterFacture(2, 25f, new DateTime(2026, 1, 5));
+            budjeckt.Months[0].AjouterFacture(3, 50f, new DateTime(2026, 1, 15));
+            budjeckt.Months[0].SupprimerFactures(new[] { 1, 3 });
+            budjeckt.SauvegarderJson(chemin);
+
+            Bud charge = new();
+            charge.ChargerJson(chemin);
+
+            MonthBudget janvier = charge.Months[0];
+            Assert.HasCount(1, janvier.Factures);
+            Assert.AreEqual(2, janvier.Factures[0].Id);
+            Assert.AreEqual(25f, janvier.TotalExpenses, 0.001f);
+            Assert.AreEqual(25f, janvier.ExpenseCategories[1].Item3, 0.001f, "Dépense Eau après rechargement");
+        }
+        finally
+        {
+            SupprimerFichier(chemin);
+        }
+    }
+
+    [TestMethod]
     public void ChargerJson_ReprendLesIdsAuMaxPlusUn()
     {
         string chemin = CreerCheminTemporaire();

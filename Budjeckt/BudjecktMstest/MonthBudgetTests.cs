@@ -520,6 +520,80 @@ public class MonthBudgetTests
     }
 
     [TestMethod]
+    public void SupprimerFactures_PlusieursIds_SupprimeEtRecalculeLesTotaux()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.AjouterFacture(1, 100f);
+        mois.AjouterFacture(1, 50f);
+        mois.AjouterFacture(2, 25f);
+        mois.AjouterFacture(3, 10f);
+
+        int supprimees = mois.SupprimerFactures(new[] { 1, 3 });
+
+        Assert.AreEqual(2, supprimees);
+        Assert.HasCount(2, mois.Factures);
+        Assert.AreEqual(60f, mois.TotalExpenses, 0.001f);
+        Assert.AreEqual(50f, mois.ExpenseCategories[0].Item3, 0.001f, "Dépense Loyer après suppression");
+        Assert.AreEqual(0f, mois.ExpenseCategories[1].Item3, 0.001f, "Dépense Eau après suppression");
+        Assert.AreEqual(10f, mois.ExpenseCategories[2].Item3, 0.001f, "Dépense Electricite après suppression");
+    }
+
+    [TestMethod]
+    public void SupprimerFactures_IdInconnu_LèveArgumentException_SansMutation()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.AjouterFacture(1, 100f);
+        mois.AjouterFacture(1, 50f);
+        mois.AjouterFacture(2, 25f);
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerFactures(new[] { 1, 77 }));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerFactures(new[] { 77, 1 }),
+            "Un id inconnu doit être rejeté avant toute suppression");
+
+        Assert.HasCount(3, mois.Factures);
+        Assert.AreEqual(175f, mois.TotalExpenses, 0.001f);
+        Assert.AreEqual(150f, mois.ExpenseCategories[0].Item3, 0.001f);
+        Assert.AreEqual(25f, mois.ExpenseCategories[1].Item3, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerFactures_ListeVide_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.AjouterFacture(1, 10f);
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerFactures(Array.Empty<int>()));
+
+        Assert.HasCount(1, mois.Factures);
+    }
+
+    [TestMethod]
+    public void SupprimerFactures_ListeNull_LèveArgumentNullException()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.AjouterFacture(1, 10f);
+
+        Assert.ThrowsExactly<ArgumentNullException>(() => mois.SupprimerFactures(null!));
+
+        Assert.HasCount(1, mois.Factures);
+    }
+
+    [TestMethod]
+    public void SupprimerFactures_AvecDoublons_SupprimeUneSeuleFois()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.AjouterFacture(1, 100f);
+        mois.AjouterFacture(2, 25f);
+
+        int supprimees = mois.SupprimerFactures(new[] { 1, 1, 2 });
+
+        Assert.AreEqual(2, supprimees);
+        Assert.IsEmpty(mois.Factures);
+        Assert.AreEqual(0f, mois.TotalExpenses);
+        Assert.AreEqual(0f, mois.BudgetRemaining);
+    }
+
+    [TestMethod]
     public void ConstructeurComplet_CatégoriesNull_LèveArgumentNullException()
     {
         Assert.ThrowsExactly<ArgumentNullException>(() =>

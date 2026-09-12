@@ -14,7 +14,28 @@ namespace BudjecktFrontend
         public MainWindow()
         {
             InitializeComponent();
-            DataContext = new MainViewModel(ConfirmerSuppression, ConfirmerSuppressionCategorie);
+            DataContext = new MainViewModel(ConfirmerSuppression, ConfirmerSuppressionCategorie, ConfirmerSuppressionFactures);
+        }
+
+        /// <summary>
+        /// Demande confirmation avant la suppression définitive des dépenses sélectionnées,
+        /// en rappelant leur nombre et leur montant total. Demandée systématiquement, même
+        /// pour une seule dépense (action irréversible).
+        /// </summary>
+        /// <param name="nbFactures">Nombre de dépenses sélectionnées.</param>
+        /// <param name="total">Montant total des dépenses sélectionnées.</param>
+        /// <returns><c>true</c> si l'utilisateur confirme la suppression.</returns>
+        private static bool ConfirmerSuppressionFactures(int nbFactures, double total)
+        {
+            string libelle = nbFactures == 1
+                ? "cette dépense"
+                : $"ces {nbFactures} dépenses";
+
+            return MessageBox.Show(
+                       $"Supprimer {libelle} (total {Formatage.Montant(total)}) ? Cette action est irréversible.",
+                       "Confirmer la suppression",
+                       MessageBoxButton.YesNo,
+                       MessageBoxImage.Warning) == MessageBoxResult.Yes;
         }
 
         /// <summary>

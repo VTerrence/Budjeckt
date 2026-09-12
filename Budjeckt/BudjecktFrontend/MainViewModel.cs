@@ -26,8 +26,12 @@ public partial class MainViewModel : ObservableObject
     private Bud _budjeckt = new();
     private string _cheminFichier = string.Empty;
     private readonly string _repertoireDonnees;
+    /// <summary>Confirmation des suppressions d'années (années cochées → consentement).</summary>
     private readonly Func<List<int>, bool>? _confirmerSuppression;
+    /// <summary>Confirmation de la suppression d'une catégorie (nom, nombre de factures → consentement).</summary>
     private readonly Func<string, int, bool>? _confirmerSuppressionCategorie;
+    /// <summary>Confirmation de la suppression des dépenses sélectionnées (nombre, montant total → consentement).</summary>
+    private readonly Func<int, double, bool>? _confirmerSuppressionFactures;
     private Tuple<int, string, float>[] _categoriesMois = Array.Empty<Tuple<int, string, float>>();
 
     /// <summary>
@@ -121,9 +125,8 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private int _indexCategorieFiltre;
 
-    /// <summary>Facture sélectionnée dans l'historique (pour la suppression).</summary>
-    [ObservableProperty]
-    private ApercuFacture? _factureSelectionnee;
+    /// <summary>Dépenses sélectionnées dans l'historique (multi-sélection avant suppression).</summary>
+    public ObservableCollection<ApercuFacture> FacturesSelectionnees { get; } = new();
 
     /// <summary>Total des dépenses du mois affiché (sans filtre).</summary>
     [ObservableProperty]
@@ -155,14 +158,26 @@ public partial class MainViewModel : ObservableObject
     /// Fonction de confirmation de la suppression d'une catégorie et de ses factures (ex.
     /// une MessageBox « Oui/Non »). Si <c>null</c>, aucune suppression n'est confirmée.
     /// </param>
-    public MainViewModel(Func<List<int>, bool>? confirmerSuppression = null, Func<string, int, bool>? confirmerSuppressionCategorie = null)
+    /// <param name="confirmerSuppressionFactures">
+    /// Fonction de confirmation de la suppression des dépenses sélectionnées (nombre et total,
+    /// ex. une MessageBox « Oui/Non »). Si <c>null</c>, aucune suppression de dépense n'est confirmée.
+    /// </param>
+    public MainViewModel(
+        Func<List<int>, bool>? confirmerSuppression = null,
+        Func<string, int, bool>? confirmerSuppressionCategorie = null,
+        Func<int, double, bool>? confirmerSuppressionFactures = null)
     {
         _confirmerSuppression = confirmerSuppression;
         _confirmerSuppressionCategorie = confirmerSuppressionCategorie;
+        _confirmerSuppressionFactures = confirmerSuppressionFactures;
         _repertoireDonnees = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "Budjeckt");
         Directory.CreateDirectory(_repertoireDonnees);
+
+        // La disponibilité de la suppression de dépenses suit la sélection multi-du DataGrid
+        // (remplie par DataGridSelectionBehavior) : notifier à chaque changement de collection.
+        FacturesSelectionnees.CollectionChanged += (_, _) => SupprimerFactureCommand.NotifyCanExecuteChanged();
 
         MigrerFichierHeriteSiNecessaire();
 
@@ -397,6 +412,27 @@ public partial class MainViewModel : ObservableObject
         PanneauSuppressionVisible = false;
     }
 
+    /// <summary>Coche toutes les années du panneau de suppression (y compris l'année courante,
+    /// recréée avec les valeurs par défaut si elle est supprimée).</summary>
+    [RelayCommand]
+    private void ToutSelectionnerAnnees()
+    {
+        foreach (AnneeSelectionnable item in AnneesSuppression)
+        {
+            item.EstCochee = true;
+        }
+    }
+
+    /// <summary>Décoche toutes les années du panneau de suppression.</summary>
+    [RelayCommand]
+    private void ToutDeselectionnerAnnees()
+    {
+        foreach (AnneeSelectionnable item in AnneesSuppression)
+        {
+            item.EstCochee = false;
+        }
+    }
+
     /// <summary>
     /// Supprime définitivement les années cochées (toutes, y compris l'année courante), après
     /// confirmation. Si l'année courante est supprimée, elle est recréée avec les valeurs par
@@ -616,11 +652,13 @@ public partial class MainViewModel : ObservableObject
         {
             int idCategorie = _categoriesMois[IndexCategorieAjout].Item1;
             MoisCourant.AjouterFacture(idCategorie, montant, DateSaisie, heure);
-            Sauvegarder();
+            if (Sauvegarder())
+            {
+                _erreurAction = string.Empty;
+                MessageErreur = string.Empty;
+            }
             MontantSaisi = string.Empty;
             HeureSaisie = string.Empty;
-            _erreurAction = string.Empty;
-            MessageErreur = string.Empty;
             ActualiserListe();
             ActualiserSynthese();
         }
@@ -637,26 +675,46 @@ public partial class MainViewModel : ObservableObject
     private bool PeutSupprimerFacture()
     {
         // La ligne « Total » est une fausse ligne de synthèse : jamais supprimable.
-        return FactureSelectionnee is { EstTotal: false };
+        return FacturesSelectionnees.Any(ligne => ligne is { EstTotal: false, Source: not null });
     }
 
     /// <summary>
-    /// Supprime définitivement la facture sélectionnée puis sauvegarde.
+    /// Supprime définitivement toutes les dépenses sélectionnées (après confirmation), puis
+    /// sauvegarde. La sélection multi vient du DataGrid (Shift+clic, Ctrl+clic, cliquer-glisser
+    /// ou touche Suppr) ; la ligne « Total » est systématiquement ignorée. La suppression est
+    /// demandée au backend en un appel (pré-validation transactionnelle avant mutation).
     /// </summary>
     [RelayCommand(CanExecute = nameof(PeutSupprimerFacture))]
     private void SupprimerFacture()
     {
-        if (FactureSelectionnee is not { EstTotal: false, Source: { } facture })
+        ApercuFacture[] selection = FacturesSelectionnees
+            .Where(ligne => ligne is { EstTotal: false, Source: not null })
+            .ToArray();
+        if (selection.Length == 0)
+        {
+            return;
+        }
+
+        int[] ids = selection.Select(ligne => ligne.Source!.Id).ToArray();
+        double total = SommeMontants(selection.Select(ligne => ligne.Source!));
+
+        if (_confirmerSuppressionFactures is not { } confirmer || !confirmer(ids.Length, total))
         {
             return;
         }
 
         try
         {
-            MoisCourant.SupprimerFacture(facture.Id);
-            Sauvegarder();
-            _erreurAction = string.Empty;
-            MessageErreur = string.Empty;
+            MoisCourant.SupprimerFactures(ids);
+            if (Sauvegarder())
+            {
+                MessageSucces = ids.Length == 1
+                    ? "1 dépense supprimée."
+                    : $"{ids.Length} dépenses supprimées.";
+                _erreurAction = string.Empty;
+                MessageErreur = string.Empty;
+            }
+            FacturesSelectionnees.Clear();
             ActualiserListe();
             ActualiserSynthese();
         }
@@ -685,9 +743,11 @@ public partial class MainViewModel : ObservableObject
         try
         {
             MoisCourant.ChangerRevenue(revenue);
-            Sauvegarder();
-            _erreurAction = string.Empty;
-            MessageErreur = string.Empty;
+            if (Sauvegarder())
+            {
+                _erreurAction = string.Empty;
+                MessageErreur = string.Empty;
+            }
             ActualiserSynthese();
         }
         catch (ArgumentException exception)
@@ -958,7 +1018,7 @@ public partial class MainViewModel : ObservableObject
         FacturesAffichees.Clear();
         // Cumul en double pour ne pas saturer a +infini en flottant a mi-accumulation
         // (parite avec le garde d'overflow du backend dans RecalculerTotaux).
-        double total = 0d;
+        double total = SommeMontants(source);
         foreach (Facture facture in source
                      .OrderByDescending(f => f.Date)
                      .ThenByDescending(f => f.Heure)
@@ -966,7 +1026,6 @@ public partial class MainViewModel : ObservableObject
         {
             string nomCategorie = nomsCategories.TryGetValue(facture.IdCategorie, out string? nom) ? nom : "?";
             FacturesAffichees.Add(new ApercuFacture(facture, nomCategorie));
-            total += facture.Montant;
         }
 
         // Ligne « Total » : toujours presente (meme liste vide), affichee en dernier.
@@ -985,6 +1044,22 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Cumule les montants en double précision pour ne pas saturer à l'infini en flottant à
+    /// mi-accumulation (parité avec la garde d'overflow du backend dans <c>RecalculerTotaux</c>).
+    /// </summary>
+    /// <param name="factures">Factures dont il faut additionner les montants.</param>
+    /// <returns>Total cumulé en <c>double</c>.</returns>
+    private static double SommeMontants(IEnumerable<Facture> factures)
+    {
+        double total = 0d;
+        foreach (Facture facture in factures)
+        {
+            total += facture.Montant;
+        }
+        return total;
+    }
+
+    /// <summary>
     /// Répercuté à chaque changement de mois : met à jour catégories, filtre et budget.
     /// </summary>
     partial void OnIndexMoisSelectionneChanged(int value)
@@ -999,12 +1074,6 @@ public partial class MainViewModel : ObservableObject
     partial void OnIndexCategorieFiltreChanged(int value)
     {
         ActualiserListe();
-    }
-
-    /// <summary>Répercute un changement de sélection sur la disponibilité de la suppression.</summary>
-    partial void OnFactureSelectionneeChanged(ApercuFacture? value)
-    {
-        SupprimerFactureCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Met à jour le message d'erreur pendant la saisie du montant.</summary>

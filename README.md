@@ -31,7 +31,7 @@ Budjeckt/
 │   ├── Facture.cs                   #   dépense individuelle (immuable)
 │   ├── Validation.cs                #   règles métier (noms, montants, ids, date mois + année)
 │   └── *Json.cs                     #   DTOs internes de sérialisation JSON
-├── BudjecktMstest/                  # tests MSTest net10.0 (185 tests, parallélisés)
+├── BudjecktMstest/                  # tests MSTest net10.0 (191 tests, parallélisés)
 └── BudjecktFrontend/                # application WPF net10.0-windows
     ├── MainViewModel.cs             # vue modèle MVVM (CommunityToolkit.Mvvm 8.4.0)
     ├── AnneeSelectionnable.cs       # ligne sélectionnable des années à supprimer
@@ -44,12 +44,13 @@ Budjeckt/
 
 - **Navigation entre les 12 mois** : boutons `‹` / `›` (boucle décembre ↔ janvier) et liste déroulante des mois.
 - **Navigation entre les années** : liste déroulante des années disponibles (la plus récente en premier) et bouton `＋` pour créer l'année suivante ; le sélecteur de date et la date par défaut du formulaire sont bornés à l'année affichée.
-- **Suppression d'années** : bouton « Supprimer… » ouvrant un panneau de sélection multiple ; une ou plusieurs années peuvent être cochées puis supprimées définitivement après confirmation. L'année courante supprimée est automatiquement recréée avec les valeurs par défaut.
+- **Suppression d'années** : bouton « Supprimer… » ouvrant un panneau de sélection multiple ; une ou plusieurs années peuvent être cochées puis supprimées définitivement après confirmation, avec les boutons « Tout sélectionner » / « Tout désélectionner » pour la sélection en masse. L'année courante supprimée est automatiquement recréée avec les valeurs par défaut.
 - **Ajout d'une dépense** dans le mois affiché : montant (nombre fini strictement positif), catégorie, date, heure optionnelle au format « HH:mm ». Le bouton reste désactivé tant que la saisie est invalide (montant ≦ 0 ou non numérique, heure hors `[00:00, 24:00)`, date hors du mois et de l'année).
 - **Budget mensuel modifiable** (revenue, nombre fini, négatif admis) recalculé immédiatement avec le reste.
 - **Gestion des catégories** : groupbox « Catégories » avec champ de saisie (désactivé si vide) et bouton « + Ajouter » pour ajouter une catégorie à l'année affichée (message de succès/erreur dans le groupbox). Une seconde ligne (liste déroulante + bouton « Supprimer ») supprime une catégorie pour toute l'année après confirmation — **toutes les catégories sont supprimables, y compris celles par défaut** : elles figurent toutes dans la liste de suppression, et **la MessageBox de confirmation rappelle que les factures de la catégorie sont supprimées avec elle** (le message de succès précise ensuite leur sort : aucune, une, ou N). **Un mois doit toujours garder au moins une catégorie : la suppression est refusée avec un message si elle viderait un mois** (le chargeur JSON rejette sinon l'année entière, risquant sa perte).
 - **Total de la liste** : dernière ligne de la grille, grisée, en caractères semi-gras et non sélectionnable — elle contient « Total » dans la colonne Catégorie et le montant dans la colonne Montant ; elle suit le filtre (total de la catégorie sélectionnée) et reste visible même liste vide.
-- **Filtre par catégorie**, **tri décroissant** (date, puis heure, puis id) et **suppression** de la dépense sélectionnée.
+- **Raccourcis ergonomiques** : la touche **Entrée** valide le formulaire d'ajout de dépense (montant, catégorie, date ou heure au focus) ; l'historique supporte la **multi-sélection** (Shift+clic / Ctrl+clic pour étendre la sélection, glisser pour une zone), et la touche **Suppr** (ou le bouton « Supprimer la sélection ») supprime toutes les dépenses sélectionnées après confirmation.
+- **Filtre par catégorie**, **tri décroissant** (date, puis heure, puis id) et **suppression de la sélection multi** ; toute suppression de dépense (une ou plusieurs) demande confirmation avec le nombre et le montant total.
 - **Barre de synthèse** : total du mois et reste du budget (vert / rouge).
 - **Gestion des erreurs** : messages français non techniques ; un fichier de données corrompu est mis de côté (`depenses.json.corrompu-*.bak`) au lieu d'être écrasé.
 
@@ -68,7 +69,7 @@ Commandes à exécuter depuis la racine du repo (`C:\Users\Terrence\Desktop\Budj
 dotnet build Budjeckt/Budjeckt.slnx
 ```
 
-**Exécution des tests (185 tests, MSTest) :**
+**Exécution des tests (191 tests, MSTest) :**
 
 ```
 dotnet test Budjeckt/Budjeckt.slnx
