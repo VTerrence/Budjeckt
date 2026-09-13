@@ -28,14 +28,17 @@ Budjeckt/
 │   ├── Budjeckt.cs                  #   année (lv0) : charge/sauvegarde du JSON (un fichier par année)
 │   ├── ArchivesBudjeckt.cs          #   années disponibles, création, suppression, migration du fichier hérité
 │   ├── MonthBudget.cs               #   mois (lv1) : catégories, budget, factures, totaux (année-aware)
+│   ├── BudgetHebdomadaire.cs        #   répartition « reste par semaine » (semaines à partir du 1er, restant réparti sur les semaines restantes, poids 1 / 0,35 sur la 5e)
+│   ├── SemaineBudget.cs             #   semaine du mois (bornes, marque « courante », part du restant)
 │   ├── Facture.cs                   #   dépense individuelle (immuable)
 │   ├── Validation.cs                #   règles métier (noms, montants, ids, date mois + année)
 │   └── *Json.cs                     #   DTOs internes de sérialisation JSON
-├── BudjecktMstest/                  # tests MSTest net10.0 (191 tests, parallélisés)
+├── BudjecktMstest/                  # tests MSTest net10.0 (234 tests, parallélisés)
 └── BudjecktFrontend/                # application WPF net10.0-windows
     ├── MainViewModel.cs             # vue modèle MVVM (CommunityToolkit.Mvvm 8.4.0)
     ├── AnneeSelectionnable.cs       # ligne sélectionnable des années à supprimer
     ├── ApercuFacture.cs             # vue d'une facture pour l'historique
+    ├── SemaineApercu.cs             # vue d'une semaine du panneau « Reste par semaine »
     ├── Formatage.cs                 # formatage d'affichage des montants
     └── MainWindow.xaml(.cs)         # fenêtre principale WPF
 ```
@@ -47,6 +50,7 @@ Budjeckt/
 - **Suppression d'années** : bouton « Supprimer… » ouvrant un panneau de sélection multiple ; une ou plusieurs années peuvent être cochées puis supprimées définitivement après confirmation, avec les boutons « Tout sélectionner » / « Tout désélectionner » pour la sélection en masse. L'année courante supprimée est automatiquement recréée avec les valeurs par défaut.
 - **Ajout d'une dépense** dans le mois affiché : montant (nombre fini strictement positif), catégorie, date, heure optionnelle au format « HH:mm ». Le bouton reste désactivé tant que la saisie est invalide (montant ≦ 0 ou non numérique, heure hors `[00:00, 24:00)`, date hors du mois et de l'année).
 - **Budget mensuel modifiable** (revenue, nombre fini, négatif admis) recalculé immédiatement avec le reste.
+- **« Reste par semaine »** : panneau sous « Budget du mois » listant les **semaines comptées à partir du 1er du mois** (7 jours par ligne : 1→7, 8→14, 15→21, 22→28, puis les jours 29 et plus s'ils existent ; les mois de 28 jours — février non bissextil — n'ont donc que 4 lignes). Le **restant du mois** (revenu − total des dépenses) est **réparti proportionnellement sur les semaines restantes** : chaque semaine pleine pèse 1, la 5e semaine, quand elle existe, pèse 0,35 (un mois ≈ 4,35 semaines). Une dépense effectuée n'importe où dans le mois réduit donc la part de toutes les semaines restantes (la répartition est recalculée sur le nouveau restant). La **dernière ligne est ajustée au centime** pour que la somme des montants affichés redonne exactement le restant du mois. Quand le mois affiché est le **mois courant système**, les semaines strictement passées affichent **0,00 €** — leur argent non dépensé a été reporté — et le restant n'est réparti que sur la semaine courante et les suivantes ; la semaine contenant la date système est en gras. Sinon (autre mois affiché), aucune semaine n'est écartée ni mise en gras : le restant est réparti sur toutes les semaines du mois. Recalculé à chaque changement de mois, de budget ou de dépense.
 - **Gestion des catégories** : groupbox « Catégories » avec champ de saisie (désactivé si vide) et bouton « + Ajouter » pour ajouter une catégorie à l'année affichée (message de succès/erreur dans le groupbox). Une seconde ligne (liste déroulante + bouton « Supprimer ») supprime une catégorie pour toute l'année après confirmation — **toutes les catégories sont supprimables, y compris celles par défaut** : elles figurent toutes dans la liste de suppression, et **la MessageBox de confirmation rappelle que les factures de la catégorie sont supprimées avec elle** (le message de succès précise ensuite leur sort : aucune, une, ou N). **Un mois doit toujours garder au moins une catégorie : la suppression est refusée avec un message si elle viderait un mois** (le chargeur JSON rejette sinon l'année entière, risquant sa perte).
 - **Total de la liste** : dernière ligne de la grille, grisée, en caractères semi-gras et non sélectionnable — elle contient « Total » dans la colonne Catégorie et le montant dans la colonne Montant ; elle suit le filtre (total de la catégorie sélectionnée) et reste visible même liste vide.
 - **Raccourcis ergonomiques** : la touche **Entrée** valide le formulaire d'ajout de dépense (montant, catégorie, date ou heure au focus) ; l'historique supporte la **multi-sélection** (Shift+clic / Ctrl+clic pour étendre la sélection, glisser pour une zone), et la touche **Suppr** (ou le bouton « Supprimer la sélection ») supprime toutes les dépenses sélectionnées après confirmation.
@@ -69,7 +73,7 @@ Commandes à exécuter depuis la racine du repo (`C:\Users\Terrence\Desktop\Budj
 dotnet build Budjeckt/Budjeckt.slnx
 ```
 
-**Exécution des tests (191 tests, MSTest) :**
+**Exécution des tests (234 tests, MSTest) :**
 
 ```
 dotnet test Budjeckt/Budjeckt.slnx

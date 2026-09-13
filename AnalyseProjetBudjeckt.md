@@ -134,6 +134,8 @@ pouvoir sélectioner plusieur années d'un coup pour pouvoir les supprimer avec 
 
 le reste total par semaine (1 mois = 4,35 semaines), sur chaque semaines sa dit combien il reste, si je n'ai pas dépenser tout sur la semaines précédente c'est remis automatiquement sur le budgjet de la semaines d'après, donc forcément on utilise la date systeme.
 
+**Note d'implémentation (panneau « Reste par semaine ») :** la formulation initiale (« remis automatiquement sur le budget de la semaine d'après ») a été précisée à l'implémentation (voir `README.md` et `BudjecktBackend/BudgetHebdomadaire.cs`) : le restant du mois (revenu − dépenses) n'est pas transféré semaine par semaine mais **réparti proportionnellement sur les semaines restantes** — poids 1 par semaine pleine, 0,35 pour la 5e semaine quand elle existe (un mois ≈ 4,35 semaines). Quand le mois affiché est le mois courant système, les semaines strictement passées affichent 0,00 € (leur part non dépensée a été reportée) et le restant ne va qu'à la semaine courante et aux suivantes ; pour un autre mois, toutes les semaines reçoivent une part et aucune n'est marquée courante. La dernière ligne affichée est ajustée au centime côté frontend pour que la somme des montants redonne exactement le restant.
+
 possibilité de faire une cagnote indépendante de mon reste du mois /* revoir 
 
 /*

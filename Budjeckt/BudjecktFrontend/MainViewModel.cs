@@ -144,6 +144,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _categoriesDisponibles;
 
+    /// <summary>Semaines du mois affiché comptées à partir du 1er (7 jours par ligne, 4 ou 5 selon la durée du mois), avec le reste disponible par semaine : répartition du restant du mois sur les semaines restantes (poids 1 pour les semaines 1 à 4, 0,35 pour la 5e) ; quand le mois affiché est le mois courant système, les semaines strictement passées affichent 0,00 € (argent reporté) et la semaine contenant la date système est marquée « courante ».</summary>
+    public ObservableCollection<SemaineApercu> SemainesBudget { get; } = new();
+
     /// <summary>
     /// Construit la vue : migre l'ancien fichier unique vers le format par année, détecte
     /// les années disponibles, crée l'année courante si elle manque, puis ouvre l'année
@@ -1041,6 +1044,67 @@ public partial class MainViewModel : ObservableObject
         TotalMoisTexte = Formatage.Montant(mois.TotalExpenses);
         ResteTexte = Formatage.Montant(mois.BudgetRemaining);
         RestePositif = mois.BudgetRemaining >= 0f;
+        ActualiserSemainesBudget();
+    }
+
+    /// <summary>
+    /// Met à jour le panneau « Reste par semaine » : pour le mois affiché, liste les semaines de
+    /// 7 jours comptées à partir du 1er (1→7, 8→14, 15→21, 22→28, puis les jours 29 et plus s'ils
+    /// existent), chacune montrant sa part du restant du mois (revenue − dépenses) réparti sur les
+    /// semaines restantes : poids 1 par semaine pleine, 0,35 sur la 5e. Si le mois affiché est le
+    /// mois courant système, les semaines passées affichent 0,00 € (leur argent non dépensé a été
+    /// reporté) et le restant n'est réparti que sur la semaine courante et les suivantes. La
+    /// dernière ligne est ajustée au centime pour que la somme affichée redonne exactement le
+    /// restant affiché. La semaine contenant la date système est mise en gras, uniquement si le
+    /// mois affiché est le mois courant système (sinon aucune semaine ne l'est).
+    /// </summary>
+    private void ActualiserSemainesBudget()
+    {
+        SemainesBudget.Clear();
+        DateTime? reference = EstMoisCourantSysteme() ? DateTime.Today : null;
+
+        IReadOnlyList<SemaineBudget> semaines;
+        try
+        {
+            semaines = BudgetHebdomadaire.Calculer(MoisCourant, reference);
+        }
+        catch (ArgumentException)
+        {
+            // Mois ou année anormale (ex. année hors de la plage 1900-2200, atteignable via la
+            // création d'années voisines) : le panneau reste vide plutôt que de faire planter
+            // l'interface (guard, ne devrait jamais se produire en fonctionnement normal).
+            return;
+        }
+
+        if (semaines.Count == 0)
+        {
+            return;
+        }
+
+        // Chaque ligne est arrondie au centime (N2) une à une : la dernière semaine porte la
+        // différence restante pour que les montants affichés redonnent exactement le restant.
+        var montants = new double[semaines.Count];
+        for (int i = 0; i < montants.Length; i++)
+        {
+            montants[i] = semaines[i].Reste;
+        }
+
+        montants[^1] = BudgetHebdomadaire.ResteDerniereSemaineAffiche(
+            (double)MoisCourant.BudgetRemaining, montants[..^1]);
+
+        for (int i = 0; i < semaines.Count; i++)
+        {
+            SemainesBudget.Add(new SemaineApercu(semaines[i], montants[i]));
+        }
+    }
+
+    /// <summary>
+    /// Indique si le mois affiché est le mois courant de la date système (même mois et même année).
+    /// </summary>
+    private bool EstMoisCourantSysteme()
+    {
+        return IndexMoisSelectionne + 1 == DateTime.Today.Month
+               && MoisCourant.Annee == DateTime.Today.Year;
     }
 
     /// <summary>

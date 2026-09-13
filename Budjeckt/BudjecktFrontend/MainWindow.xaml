@@ -174,6 +174,50 @@
                         </StackPanel>
                     </GroupBox>
 
+                    <GroupBox Header="Reste par semaine" Padding="10" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Semaines comptées à partir du 1er du mois ; le restant (revenu − dépenses) est réparti sur les semaines restantes (poids 1 pour les semaines 1 à 4, 0,35 pour la 5e, jours 29 et plus) ; la dernière ligne est ajustée au centime pour que la somme redonne exactement le restant. Pour le mois en cours, les semaines passées affichent 0,00 € — leur argent non dépensé a été reporté."
+                                       FontSize="11" Foreground="#757575" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <ItemsControl ItemsSource="{Binding SemainesBudget}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Libelle}" TextWrapping="Wrap"
+                                                       VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding EstSemaineCourante}" Value="True">
+                                                                <Setter Property="FontWeight" Value="Bold"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Grid.Column="1" Text="{Binding ResteTexte}" FontWeight="SemiBold"
+                                                       Margin="10,0,0,0" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#2E7D32"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding RestePositif}" Value="False">
+                                                                <Setter Property="Foreground" Value="#C62828"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </GroupBox>
+
                     <GroupBox Header="Catégories" Padding="10" Margin="0,10,0,0">
                         <StackPanel>
                             <StackPanel Orientation="Horizontal">
