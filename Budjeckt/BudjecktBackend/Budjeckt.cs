@@ -270,7 +270,19 @@ public class Budjeckt
                 throw new InvalidDataException($"Le mois \"{mois.Nom}\" a un revenue invalide (NaN ou infini).");
             }
 
+            // Un montant de cagnotte infini corromprait le reste du mois et bloquerait la
+            // sauvegarde ; un montant négatif est admis (argent réinjecté depuis la cagnotte).
+            if (float.IsNaN(mois.MontantCagnotte) || float.IsInfinity(mois.MontantCagnotte))
+            {
+                throw new InvalidDataException($"Le mois \"{mois.Nom}\" a un montant de cagnotte invalide (NaN ou infini).");
+            }
+
             HashSet<int> idsFacture = new();
+            // La catégorie réservée « Cagnotte » autorise seule les montants signés (dépôt/retrait).
+            int? idCategorieCagnotte = mois.Categories
+                .FirstOrDefault(categorie => string.Equals(categorie.Nom, MonthBudget.NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase))
+                ?.Id;
+
             foreach (FactureJson facture in mois.Factures ?? Enumerable.Empty<FactureJson>())
             {
                 if (facture is null)
@@ -286,12 +298,20 @@ public class Budjeckt
                         $"Le mois \"{mois.Nom}\" a des factures avec des ids négatifs, nuls ou dupliqués.");
                 }
 
-                // NaN et infini échappent à la comparaison "<= 0" (IEEE 754) ; un montant infini
+                // NaN et infini échappent aux comparaisons (IEEE 754) ; un montant infini
                 // corromprait les totaux et empêcherait toute sauvegarde JSON ultérieure.
-                if (facture.Montant <= 0f || float.IsNaN(facture.Montant) || float.IsInfinity(facture.Montant))
+                // Hors de la catégorie cagnotte, un montant ≤ 0 est une dépense incohérente ;
+                // dans la catégorie cagnotte, un montant nul est un mouvement dépourvu de sens.
+                bool estMouvementCagnotte = facture.IdCategorie == idCategorieCagnotte;
+                bool montantInvalide = estMouvementCagnotte
+                    ? facture.Montant == 0f
+                    : facture.Montant <= 0f;
+                if (montantInvalide || float.IsNaN(facture.Montant) || float.IsInfinity(facture.Montant))
                 {
                     throw new InvalidDataException(
-                        $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a un montant invalide (inférieur ou égal à 0, NaN ou infini).");
+                        estMouvementCagnotte
+                            ? $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" est un mouvement de cagnotte à montant nul, NaN ou infini."
+                            : $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a un montant invalide (inférieur ou égal à 0, NaN ou infini).");
                 }
 
                 if (!mois.Categories.Any(categorie => categorie.Id == facture.IdCategorie))
@@ -300,8 +320,8 @@ public class Budjeckt
                         $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" référence une catégorie inconnue.");
                 }
 
-                // L'heure est optionnelle mais doit rester dans [00:00, 24:00) si renseignée.
-                if (!Validation.HeureEstValide(facture.Heure))
+                // Un mouvement de cagnotte est sans heure : seule la date du mouvement compte.
+                if (!estMouvementCagnotte && !Validation.HeureEstValide(facture.Heure))
                 {
                     throw new InvalidDataException(
                         $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a une heure invalide.");
@@ -339,13 +359,23 @@ public class Budjeckt
         int annee = int.Parse(donnees.Annee!, System.Globalization.CultureInfo.InvariantCulture);
 
         MonthBudget[] nouveauxMois = donnees.Mois!
-            .Select(mois => new MonthBudget(
-                mois.Nom!,
-                mois.Revenue,
-                mois.Categories!.Select(categorie => new Tuple<int, string, float>(categorie.Id, categorie.Nom!, 0f)).ToArray(),
-                (mois.Factures ?? Enumerable.Empty<FactureJson>())
-                    .Select(facture => new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, facture.Heure)),
-                annee))
+            .Select(mois =>
+            {
+                int? idCategorieCagnotte = mois.Categories!
+                    .FirstOrDefault(categorie => string.Equals(categorie.Nom, MonthBudget.NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase))
+                    ?.Id;
+
+                return new MonthBudget(
+                    mois.Nom!,
+                    mois.Revenue,
+                    mois.Categories!.Select(categorie => new Tuple<int, string, float>(categorie.Id, categorie.Nom!, 0f)).ToArray(),
+                    (mois.Factures ?? Enumerable.Empty<FactureJson>())
+                        .Select(facture => facture.IdCategorie == idCategorieCagnotte
+                            ? new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, mouvementCagnotte: true)
+                            : new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, facture.Heure)),
+                    annee,
+                    mois.MontantCagnotte);
+            })
             .ToArray();
 
         _annee = donnees.Annee!;
@@ -365,6 +395,7 @@ public class Budjeckt
                 {
                     Nom = mois.Nom,
                     Revenue = mois.Revenue,
+                    MontantCagnotte = mois.MontantCagnotte,
                     Categories = mois.ExpenseCategories
                         .Select(categorie => new CategoryJson { Id = categorie.Item1, Nom = categorie.Item2 })
                         .ToList(),

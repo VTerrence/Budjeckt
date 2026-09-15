@@ -174,6 +174,30 @@
                         </StackPanel>
                     </GroupBox>
 
+                    <GroupBox Header="Cagnotte" Padding="10" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Cagnotte globale (commune à toutes les années). Déposer un montant le retire du reste du mois ; le retirer le y réinjecte." FontSize="11" Foreground="#757575" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="Solde : " Foreground="#424242"/>
+                                <TextBlock Text="{Binding SoldeCagnotteTexte}" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <TextBox Text="{Binding MontantCagnotteSaisi, UpdateSourceTrigger=PropertyChanged}"
+                                     AutomationProperties.Name="Montant de la cagnotte"
+                                     ToolTip="Valeur numérique strictement positive, plafonnée au reste du mois pour un dépôt et au solde de la cagnotte pour un retrait"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="Déposer dans la cagnotte"
+                                        Command="{Binding DeposerEnCagnotteCommand}"
+                                        AutomationProperties.Name="Déposer dans la cagnotte"
+                                        Margin="0,0,6,0" Height="30" Padding="8,0"/>
+                                <Button Content="Retirer de la cagnotte"
+                                        Command="{Binding RetirerDeCagnotteCommand}"
+                                        AutomationProperties.Name="Retirer de la cagnotte"
+                                        Height="30" Padding="8,0"
+                                        Background="#C62828" Foreground="White"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
                     <GroupBox Header="Reste par semaine" Padding="10" Margin="0,10,0,0">
                         <StackPanel>
                             <TextBlock Text="Semaines comptées à partir du 1er du mois ; le restant (revenu − dépenses) est réparti sur les semaines restantes (poids 1 pour les semaines 1 à 4, 0,35 pour la 5e, jours 29 et plus) ; la dernière ligne est ajustée au centime pour que la somme redonne exactement le restant. Pour le mois en cours, les semaines passées affichent 0,00 € — leur argent non dépensé a été reporté."

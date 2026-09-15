@@ -399,6 +399,86 @@ public class BudjecktTests
     }
 
     [TestMethod]
+    public void ChargerJson_MontantCagnotteInfini_LèveInvalidDataException()
+    {
+        // "1e39" déborde silencieusement vers +infini à la désérialisation : un tel montant
+        // corromprait le reste du mois et bloquerait toute sauvegarde ultérieure.
+        VerifierChargementInvalide(CreerJsonAnnée(montantCagnotte: _ => 0f)
+            .Replace("\"MontantCagnotte\":0", "\"MontantCagnotte\":1e39"));
+    }
+
+    [TestMethod]
+    public void ChargerJson_MontantCagnotteSansClé_SoldeNul()
+    {
+        // Les fichiers écrits avant l'arrivée de la cagnotte n'ont pas la clé : au chargement,
+        // le montant doit tomber à 0 et non rejeter le fichier.
+        VerifierChargement(CreerJsonAnnée(), budjeckt =>
+        {
+            Assert.IsTrue(budjeckt.Months.All(mois => mois.MontantCagnotte == 0f),
+                "Un mois sans clé MontantCagnotte doit charger un montant nul");
+        });
+    }
+
+    [TestMethod]
+    public void ChargerJson_MontantCagnottePositif_SeRechargeAvecLeMêmeReste()
+    {
+        VerifierChargement(CreerJsonAnnée(montantCagnotte: _ => 100f), budjeckt =>
+        {
+            MonthBudget janvier = budjeckt.Months[0];
+            Assert.AreEqual(100f, janvier.MontantCagnotte, 0.001f);
+            Assert.AreEqual(-100f, janvier.BudgetRemaining, 0.001f, "Reste = revenue − dépenses − cagnotte");
+        });
+    }
+
+    [TestMethod]
+    public void ChargerJson_MontantCagnotteNégatif_SeRechargeAvecLeMêmeReste()
+    {
+        // Un montant négatif (argent réinjecté depuis la cagnotte globale) est admis et
+        // augmente le reste du mois.
+        VerifierChargement(CreerJsonAnnée(montantCagnotte: index => index == 0 ? -50f : 0f), budjeckt =>
+        {
+            MonthBudget janvier = budjeckt.Months[0];
+            Assert.AreEqual(-50f, janvier.MontantCagnotte, 0.001f);
+            Assert.AreEqual(50f, janvier.BudgetRemaining, 0.001f);
+        });
+    }
+
+    [TestMethod]
+    public void ChargerJson_MontantCagnotteCombinéÀRevenueEtFactures_RecalculeLeReste()
+    {
+        // Formule complète au niveau de l'année : reste = revenue − dépenses − cagnotte,
+        // les trois termes non nuls dans le même mois.
+        string json = CreerJsonAnnée(
+            revenue: index => index == 0 ? 500f : 0f,
+            montantCagnotte: index => index == 0 ? 150f : 0f,
+            factures: index => index == 0
+                ? "{\"Id\":1,\"IdCategorie\":1,\"Montant\":100,\"Date\":\"2026-01-10T00:00:00\"}"
+                : "");
+
+        VerifierChargement(json, budjeckt =>
+        {
+            MonthBudget janvier = budjeckt.Months[0];
+            Assert.AreEqual(150f, janvier.MontantCagnotte, 0.001f);
+            // Les mouvements de cagnotte sont de vraies factures signées : le dépôt de 150
+            // fait partie du total des dépenses, ce qui préserve l'équivalence du reste
+            // (reste = revenue − dépenses − cagnotte ≡ revenue − total incluant la cagnotte).
+            Assert.AreEqual(250f, janvier.TotalExpenses, 0.001f, "Total = dépenses 100 + dépôt cagnotte 150");
+            Assert.AreEqual(250f, janvier.BudgetRemaining, 0.001f, "Reste = revenue − total (cagnotte incluse)");
+        });
+    }
+
+    [TestMethod]
+    public void ChargerJson_MontantCagnotteTrèsNégatif_FaitDéborderLeReste_LèveInvalidDataException()
+    {
+        // Revenue 3e38 et montant de cagnotte −3e38 passent la validation (tous deux finis),
+        // mais le reste « revenue − dépenses − cagnotte » vaut 6e38, soit +infini en float :
+        // l'application du modèle doit rejeter le fichier comme tout autre débordement.
+        VerifierChargementInvalide(CreerJsonAnnée(
+            revenue: index => index == 0 ? 3e38f : 0f,
+            montantCagnotte: index => index == 0 ? -3e38f : 0f));
+    }
+
+    [TestMethod]
     public void ChargerJson_MoisNul_LèveInvalidDataException()
     {
         VerifierChargementInvalide("{\"Annee\":\"2026\",\"Mois\":[" +
@@ -560,6 +640,43 @@ public class BudjecktTests
     }
 
     [TestMethod]
+    public void SauvegarderPuisCharger_ConserveLeMontantCagnotteParMois()
+    {
+        string chemin = CreerCheminTemporaire();
+        try
+        {
+            Bud budjeckt = new("2026");
+            budjeckt.Months = CreerDouzeMois();
+            budjeckt.Months[0] = new MonthBudget(
+                "Janvier", 1000f,
+                new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+                Enumerable.Empty<Facture>());
+            budjeckt.Months[0].MettreDeCote(250f);
+            budjeckt.Months[1] = new MonthBudget(
+                "Février", 800f,
+                new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+                Enumerable.Empty<Facture>());
+            budjeckt.Months[1].RecupererDeCagnotte(75f);
+            budjeckt.SauvegarderJson(chemin);
+
+            Bud charge = new();
+            charge.ChargerJson(chemin);
+
+            MonthBudget janvier = charge.Months[0];
+            Assert.AreEqual(250f, janvier.MontantCagnotte, 0.001f);
+            Assert.AreEqual(750f, janvier.BudgetRemaining, 0.001f);
+
+            MonthBudget fevrier = charge.Months[1];
+            Assert.AreEqual(-75f, fevrier.MontantCagnotte, 0.001f);
+            Assert.AreEqual(875f, fevrier.BudgetRemaining, 0.001f);
+        }
+        finally
+        {
+            SupprimerFichier(chemin);
+        }
+    }
+
+    [TestMethod]
     public void SauvegarderPuisCharger_ConserveLHeureEtLesFacturesSansHeure()
     {
         string chemin = CreerCheminTemporaire();
@@ -693,14 +810,16 @@ public class BudjecktTests
 
     /// <summary>
     /// Construit un JSON d'année valide (12 mois) avec possibilité d'altérer une partie
-    /// de la structure pour tester chaque branche de validation.
+    /// de la structure pour tester chaque branche de validation. Le montant de cagnotte
+    /// n'est émis que si son générateur est fourni (fichiers antérieurs à la cagnotte).
     /// </summary>
     private static string CreerJsonAnnée(
         string? annee = "2026",
         IReadOnlyList<string?>? nomsMois = null,
         Func<int, string?>? categories = null,
         Func<int, string>? factures = null,
-        Func<int, float>? revenue = null)
+        Func<int, float>? revenue = null,
+        Func<int, float>? montantCagnotte = null)
     {
         nomsMois ??= NomsMois;
         categories ??= _ => "[{\"Id\":1,\"Nom\":\"Loyer\"}]";
@@ -708,10 +827,16 @@ public class BudjecktTests
         revenue ??= _ => 0f;
 
         var mois = nomsMois.Select((nom, index) =>
-            $"{{\"Nom\":{(nom is null ? "null" : $"\"{nom}\"")}," +
-            $"\"Revenue\":{revenue(index).ToString(CultureInfo.InvariantCulture)}," +
-            $"\"Categories\":{categories(index) ?? "null"}," +
-            $"\"Factures\":{(factures(index).Length == 0 ? "[]" : $"[{factures(index)}]")}}}");
+        {
+            string cagnotte = montantCagnotte is null
+                ? ""
+                : $"\"MontantCagnotte\":{montantCagnotte(index).ToString(CultureInfo.InvariantCulture)},";
+            return $"{{\"Nom\":{(nom is null ? "null" : $"\"{nom}\"")}," +
+                   $"\"Revenue\":{revenue(index).ToString(CultureInfo.InvariantCulture)}," +
+                   cagnotte +
+                   $"\"Categories\":{categories(index) ?? "null"}," +
+                   $"\"Factures\":{(factures(index).Length == 0 ? "[]" : $"[{factures(index)}]")}}}";
+        });
 
         return $"{{\"Annee\":{(annee is null ? "null" : $"\"{annee}\"")},\"Mois\":[{string.Join(",", mois)}]}}";
     }

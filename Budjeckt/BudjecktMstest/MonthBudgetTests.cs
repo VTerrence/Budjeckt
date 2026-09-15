@@ -916,4 +916,260 @@ public class MonthBudgetTests
         Assert.HasCount(1, mois.Factures);
         Assert.AreEqual(new DateTime(autreAnnée, DateTime.Today.Month, 1), mois.Factures[0].Date);
     }
+
+    [TestMethod]
+    public void MettreDeCote_DiminueLeResteEtAugmenteLeMontantCagnotte()
+    {
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+
+        mois.MettreDeCote(250f);
+
+        Assert.AreEqual(750f, mois.BudgetRemaining, 0.001f, "L'argent mis de côté n'est plus disponible au mois");
+        Assert.AreEqual(250f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void MettreDeCote_SurMoisAvecFactures_TientCompteDuTotalDépensé()
+    {
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+        mois.AjouterFacture(1, 400f);
+
+        mois.MettreDeCote(250f);
+
+        Assert.AreEqual(350f, mois.BudgetRemaining, 0.001f, "Reste = revenue − dépenses − cagnotte");
+        Assert.AreEqual(250f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void MettreDeCote_MontantSupérieurAuReste_LèveArgumentException_SansMutation()
+    {
+        var mois = new MonthBudget("Janvier", 100f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.MettreDeCote(100.01f));
+
+        Assert.AreEqual(100f, mois.BudgetRemaining, 0.001f, "Le reste ne doit pas se dégrader à la suite d'un refus");
+        Assert.AreEqual(0f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void MettreDeCote_MontantÉgalAuReste_LeResteDevientNul()
+    {
+        // Borne haute autorisée : mettre de côté exactement le reste le ramène à 0
+        // (le mois n'est pas en déficit pour alimenter la cagnotte).
+        var mois = new MonthBudget("Janvier", 100f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+
+        mois.MettreDeCote(100f);
+
+        Assert.AreEqual(100f, mois.MontantCagnotte, 0.001f);
+        Assert.AreEqual(0f, mois.BudgetRemaining, 0.001f, "La totalité du reste peut être mise de côté");
+    }
+
+    [TestMethod]
+    public void MettreDeCote_MontantInvalide_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier", 100f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.MettreDeCote(0f));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.MettreDeCote(-5f));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.MettreDeCote(float.NaN));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.MettreDeCote(float.PositiveInfinity));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.MettreDeCote(float.NegativeInfinity));
+
+        Assert.AreEqual(0f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void MettreDeCote_ResteNégatif_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier", 100f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            new[] { new Facture(1, 1, 150f, new DateTime(DateTime.Today.Year, 1, 3)) });
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.MettreDeCote(1f),
+            "Un mois en déficit ne doit pas pouvoir alimenter la cagnotte");
+    }
+
+    [TestMethod]
+    public void RecupererDeCagnotte_AugmenteLeResteEtDiminueLeMontantCagnotte()
+    {
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+        mois.MettreDeCote(300f);
+
+        mois.RecupererDeCagnotte(100f);
+
+        Assert.AreEqual(800f, mois.BudgetRemaining, 0.001f, "L'argent récupéré redevient disponible");
+        Assert.AreEqual(200f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void RecupererDeCagnotte_MontantSupérieurÀCeQueLeMoisAMis_ResteFiniEtMontantNégative()
+    {
+        var mois = new MonthBudget("Janvier", 500f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+
+        mois.RecupererDeCagnotte(80f);
+
+        Assert.AreEqual(580f, mois.BudgetRemaining, 0.001f);
+        Assert.AreEqual(-80f, mois.MontantCagnotte, 0.001f,
+            "Le mois peut récupérer de la cagnotte plus que le total déjà déposé par lui (solde global)");
+    }
+
+    [TestMethod]
+    public void RecupererDeCagnotte_MontantInvalide_LèveArgumentException()
+    {
+        var mois = new MonthBudget("Janvier");
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.RecupererDeCagnotte(0f));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.RecupererDeCagnotte(-5f));
+        Assert.ThrowsExactly<ArgumentException>(() => mois.RecupererDeCagnotte(float.NaN));
+
+        Assert.AreEqual(0f, mois.BudgetRemaining, 0.001f, "Un refus de retrait ne doit rien modifier");
+        Assert.AreEqual(0f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void RecupererDeCagnotte_DébordementDeMontantCagnotteNégative_LèveInvalidDataException()
+    {
+        // Le total mis en cagnotte peut être très négatif (argent réinjecté) : le retrait
+        // supplémentaire doit refuser de passer en « moins infini » au lieu de corrompre le mois.
+        var mois = new MonthBudget("Janvier", 0f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>(), DateTime.Today.Year, -float.MaxValue);
+
+        Assert.ThrowsExactly<InvalidDataException>(() => mois.RecupererDeCagnotte(float.MaxValue));
+
+        Assert.AreEqual(-float.MaxValue, mois.MontantCagnotte, 0.001f, "Le montant ne doit pas être modifié en cas de débordement");
+    }
+
+    [TestMethod]
+    public void RecupererDeCagnotte_ResteDébordantVersPlusInfini_LèveInvalidDataException_SansMutation()
+    {
+        // Régression : avec revenue à la borne haute et un retrait très important, le nouveau
+        // reste (`revenue − dépenses − cagnotte`) déborderait vers +∞ alors même que la
+        // soustraction du montant de cagnotte reste finie. La garde doit échouer AVANT toute
+        // mutation : ni montantCagnotte ni budgetRemaining ne doivent être corrompus (+∞).
+        var mois = new MonthBudget("Janvier", float.MaxValue,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+        Assert.AreEqual(float.MaxValue, mois.BudgetRemaining, 0.001f);
+
+        Assert.ThrowsExactly<InvalidDataException>(() => mois.RecupererDeCagnotte(float.MaxValue));
+
+        Assert.AreEqual(0f, mois.MontantCagnotte, 0.001f, "La cagnotte du mois ne doit pas être modifiée en cas de refus");
+        Assert.AreEqual(float.MaxValue, mois.BudgetRemaining, 0.001f, "Le reste ne doit jamais valoir +∞");
+    }
+
+    [TestMethod]
+    public void Constructeur_AvecMontantCagnotte_CalculeLeResteEnLeComptant()
+    {
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            new[] { new Facture(1, 1, 200f, new DateTime(DateTime.Today.Year, 1, 3)) },
+            DateTime.Today.Year, 150f);
+
+        Assert.AreEqual(150f, mois.MontantCagnotte, 0.001f);
+        Assert.AreEqual(650f, mois.BudgetRemaining, 0.001f, "Reste = revenue − dépenses − cagnotte");
+    }
+
+    [TestMethod]
+    public void Constructeur_MontantCagnotteNégatif_EstAcceptéEtSoustraitNégatif()
+    {
+        var mois = new MonthBudget("Janvier", 500f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>(), DateTime.Today.Year, -100f);
+
+        Assert.AreEqual(-100f, mois.MontantCagnotte, 0.001f);
+        Assert.AreEqual(600f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void Constructeur_MontantCagnotteNaNInfini_LèveArgumentException()
+    {
+        var categories = new[] { new Tuple<int, string, float>(1, "Loyer", 0f) };
+
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            new MonthBudget("Janvier", 0f, categories, Enumerable.Empty<Facture>(), DateTime.Today.Year, float.NaN));
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            new MonthBudget("Janvier", 0f, categories, Enumerable.Empty<Facture>(), DateTime.Today.Year, float.PositiveInfinity));
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            new MonthBudget("Janvier", 0f, categories, Enumerable.Empty<Facture>(), DateTime.Today.Year, float.NegativeInfinity));
+    }
+
+    [TestMethod]
+    public void Constructeur_ResteDébordantÀCauseDUneCagnotteTrèsNégative_LèveInvalidDataException()
+    {
+        // Un fort retrait de cagnotte (montant très négatif) combiné à un gros revenue fait
+        // déborder le reste « revenue − dépenses − montantCagnotte » vers +infini :
+        // le constructeur doit refuser, comme ChangerRevenue le fait dans le cas symétrique.
+        var categories = new[] { new Tuple<int, string, float>(1, "Loyer", 0f) };
+
+        Assert.ThrowsExactly<InvalidDataException>(() =>
+            new MonthBudget("Janvier", float.MaxValue, categories, Enumerable.Empty<Facture>(), DateTime.Today.Year, -float.MaxValue));
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_NeRessuscitePasLArgentDéjàMisDeCôté()
+    {
+        // Baisser le revenue après un dépôt en cagnotte ne doit pas redonner au mois l'argent
+        // qu'il a mis de côté : celui-ci reste déduit (revenue − dépenses − cagnotte).
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>());
+        mois.MettreDeCote(200f);
+        Assert.AreEqual(800f, mois.BudgetRemaining, 0.001f);
+
+        mois.ChangerRevenue(500f);
+
+        Assert.AreEqual(300f, mois.BudgetRemaining, 0.001f, "Le reste doit rester amputé des 200 € mis de côté");
+        Assert.AreEqual(200f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void ChangerRevenue_ResteDébordantAvecCagnotte_LèveInvalidDataException_SansMutation()
+    {
+        // Avec un fort retrait de cagnotte (montant très négatif), augmenter le revenue peut
+        // faire déborder le reste vers +infini (revenue − dépenses − montantCagnotte) :
+        // le changement doit être refusé sans toucher revenue ni cagnotte.
+        // revenue=0, cagnotte=-MaxValue → reste=MaxValue (fini).
+        // ChangerRevenue(MaxValue) → reste=MaxValue + MaxValue = +Infinity → refusé.
+        var mois = new MonthBudget("Janvier", 0f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            Enumerable.Empty<Facture>(), DateTime.Today.Year, -float.MaxValue);
+        Assert.AreEqual(float.MaxValue, mois.BudgetRemaining, 0.001f);
+
+        Assert.ThrowsExactly<InvalidDataException>(() => mois.ChangerRevenue(float.MaxValue));
+
+        Assert.AreEqual(0f, mois.Revenue, "Le revenue ne doit pas être modifié si le reste déborde");
+        Assert.AreEqual(-float.MaxValue, mois.MontantCagnotte, 0.001f, "Le montant de cagnotte doit rester inchangé");
+        Assert.AreEqual(float.MaxValue, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void RecalculerDépenses_ResteÀUn_MaisCagnotteIntacte()
+    {
+        // La suppression d'une facture ne doit pas toucher au montant mis en cagnotte.
+        var mois = new MonthBudget("Janvier", 1000f,
+            new[] { new Tuple<int, string, float>(1, "Loyer", 0f) },
+            new[] { new Facture(1, 1, 200f, new DateTime(DateTime.Today.Year, 1, 3)) });
+        mois.MettreDeCote(100f);
+        Assert.AreEqual(700f, mois.BudgetRemaining, 0.001f);
+
+        mois.SupprimerFacture(1);
+
+        Assert.AreEqual(900f, mois.BudgetRemaining, 0.001f);
+        Assert.AreEqual(100f, mois.MontantCagnotte, 0.001f, "La cagnotte du mois doit survivre à la suppression d'une facture");
+    }
 }

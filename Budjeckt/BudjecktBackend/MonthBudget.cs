@@ -14,6 +14,13 @@ public class MonthBudget
     private float _totalExpenses;
     private float _budgetRemaining;
 
+    /// <summary>
+    /// Nom réservé de la catégorie qui porte les mouvements de cagnotte du mois (dépôts et
+    /// retraits, montant signé). Non ajoutable/supprimable/renommable via l'interface ; une
+    /// catégorie déjà nommée ainsi avant la cagnotte devient la catégorie de cagnotte du mois.
+    /// </summary>
+    public const string NomCategorieCagnotte = "Cagnotte";
+
     /// <summary>Nom du mois (ex. « Janvier »).</summary>
     public string Nom => _nom;
 
@@ -33,11 +40,23 @@ public class MonthBudget
     /// <summary>Factures (dépenses individuelles) du mois, en lecture seule.</summary>
     public IReadOnlyList<Facture> Factures => _factures.AsReadOnly();
 
-    /// <summary>Total des dépenses du mois.</summary>
+    /// <summary>Total des dépenses du mois (inclut les mouvements signés de cagnotte).</summary>
     public float TotalExpenses => _totalExpenses;
 
     /// <summary>Reste du budget (revenue - total des dépenses), potentiellement négatif si le budget est dépassé.</summary>
     public float BudgetRemaining => _budgetRemaining;
+
+    /// <summary>
+    /// Montant net que ce mois a mis en cagnotte : positif = de l'argent de ce mois a été
+    /// mis de côté (soustrait du reste), négatif = de l'argent de la cagnotte a été réinjecté
+    /// dans ce mois (ajouté au reste). C'est la somme signée des mouvements de cagnotte du mois
+    /// (dépôts comme factures positives, retraits comme factures négatives), équivalente à
+    /// l'ancien champ persisté avant la cagnotte en factures. Le solde global de la cagnotte
+    /// est la somme de ces montants sur tous les mois de toutes les années.
+    /// </summary>
+    public float MontantCagnotte => _factures
+        .Where(facture => facture.EstMouvementCagnotte)
+        .Sum(facture => facture.Montant);
 
     /// <summary>
     /// Construit un mois avec des valeurs par défaut : les 7 catégories de base
@@ -60,17 +79,30 @@ public class MonthBudget
     /// <param name="categories">Catégories de dépense (la dépense faite fournie est ignorée et recalculée).</param>
     /// <param name="factures">Factures du mois, chacune référençant une catégorie existante.</param>
     /// <param name="annee">Année du mois (ex. 2026) ; l'année courante si absente.</param>
+    /// <param name="montantCagnotte">Montant net mis en cagnotte par ce mois (compatibilité des
+    /// fichiers antérieurs à la cagnotte en factures) ; 0 si absent. Négatif autorisé (argent
+    /// réinjecté de la cagnotte vers ce mois). Transcrit en une ligne synthétique de cagnotte
+    /// uniquement si le mois ne porte aucun mouvement de cagnotte.</param>
     /// <exception cref="ArgumentException">Si le nom du mois est vide, si le revenue n'est pas
-    /// un nombre fini, si une facture référence une catégorie inconnue ou n'appartient pas
-    /// au mois et à l'année du mois.</exception>
+    /// un nombre fini, si le montant de cagnotte n'est pas fini, si une facture référence une
+    /// catégorie inconnue ou n'appartient pas au mois et à l'année du mois.</exception>
     /// <exception cref="InvalidDataException">Si la somme des factures d'une catégorie ou du mois
-    /// déborde de la plage flottante.</exception>
-    public MonthBudget(string nom, float revenue, Tuple<int, string, float>[] categories, IEnumerable<Facture> factures, int? annee = null)
+    /// déborde de la plage flottante, ou si le reste du mois (revenue − dépenses − montant de
+    /// cagnotte) déborde à cause du montant de cagnotte.</exception>
+    public MonthBudget(string nom, float revenue, Tuple<int, string, float>[] categories, IEnumerable<Facture> factures, int? annee = null, float montantCagnotte = 0f)
     {
         ArgumentNullException.ThrowIfNull(categories);
         ArgumentNullException.ThrowIfNull(factures);
         Validation.VerifierNomNonVide(nom);
         Validation.VerifierRevenueFini(revenue);
+
+        // Un montant de cagnotte NaN ou infini corromprait silencieusement le reste du mois
+        // et bloquerait toute sauvegarde JSON ultérieure.
+        if (float.IsNaN(montantCagnotte) || float.IsInfinity(montantCagnotte))
+        {
+            throw new ArgumentException("Le montant de cagnotte doit être un nombre fini.", nameof(montantCagnotte));
+        }
+
         _nom = nom;
         _annee = annee ?? DateTime.Today.Year;
         _revenue = revenue;
@@ -84,6 +116,16 @@ public class MonthBudget
         {
             Validation.VerifierCategorieExiste(facture.IdCategorie, _expenseCategories.Select(categorie => categorie.Item1));
             Validation.VerifierDateDansLeMois(facture.Date, _nom, _annee);
+        }
+
+        // Migration des fichiers antérieurs à la cagnotte en factures : le champ MontantCagnotte
+        // est transcrit en une ligne synthétique signée, uniquement si le mois ne porte aucun
+        // mouvement signé (sinon le champ est une redondance dérivée et on lui fait confiance).
+        // Le reste est mathématiquement identique (revenue − dépenses − montantCagnotte), les
+        // totaux changent de forme mais pas de valeur.
+        if (montantCagnotte != 0f && !aDesMouvementsCagnotte())
+        {
+            CreerLigneCagnotte(montantCagnotte, date: null);
         }
 
         RecalculerTotaux();
@@ -102,6 +144,8 @@ public class MonthBudget
 
         // Le nouveau reste est validé AVANT toute mutation : un débordement refusé ne doit
         // laisser ni revenue ni reste dans un état partiellement modifié (transactionnalité).
+        // Les mouvements de cagnotte sont déjà comptés dans le total des dépenses : un
+        // changement de revenue ne doit pas « ressusciter » l'argent déjà mis de côté.
         if (float.IsInfinity(revenue - _totalExpenses))
         {
             throw new InvalidDataException("Le reste du budget déborde de la plage flottante.");
@@ -112,14 +156,95 @@ public class MonthBudget
     }
 
     /// <summary>
+    /// Met un montant de côté dans la cagnotte : le montant est soustrait du reste du mois
+    /// (il n'est plus disponible pour les dépenses et ne réapparaît pas dans la répartition
+    /// hebdomadaire). On ne peut mettre de côté que l'argent encore disponible, d'où le
+    /// plafond au reste actuel non négatif du mois. Un dépôt ajoute une facture POSITIVE
+    /// (+ montant) dans la catégorie réservée « Cagnotte » du mois.
+    /// </summary>
+    /// <param name="montant">Montant à mettre de côté, strictement positif.</param>
+    /// <exception cref="ArgumentException">Si le montant est nul, négatif, NaN, infini ou
+    /// supérieur au reste actuel du mois.</exception>
+    /// <exception cref="InvalidDataException">Si le nouveau total ou le nouveau reste du
+    /// mois déborde de la plage flottante.</exception>
+    public void MettreDeCote(float montant)
+    {
+        Validation.VerifierMontantPositif(montant);
+
+        // Mettre de côté plus que le reste disponible ferait passer le budget du mois en
+        // déficit pour alimenter la cagnotte : refusé avant toute mutation (transactionnalité).
+        if (montant > _budgetRemaining)
+        {
+            throw new ArgumentException(
+                $"Impossible de mettre {montant} € de côté : le reste du mois est de {_budgetRemaining} €.", nameof(montant));
+        }
+
+        // Le nouveau total et le nouveau reste sont vérifiés AVANT toute mutation, comme en
+        // retrait (voir RecupererDeCagnotte) : un état débordant ne doit jamais corrompre le mois.
+        // En pratique le plafond `montant ≤ reste` rend déjà ce cas inatteignable, la garde
+        // reste par symétrie et défense en profondeur (transactionnalité).
+        float nouveauTotal = _totalExpenses + montant;
+        float nouveauReste = _revenue - nouveauTotal;
+
+        if (float.IsInfinity(nouveauTotal) || float.IsInfinity(nouveauReste))
+        {
+            throw new InvalidDataException("Le reste du budget déborde de la plage flottante.");
+        }
+
+        CreerLigneCagnotte(montant, date: null);
+        RecalculerTotaux();
+    }
+
+    /// <summary>
+    /// Récupère un montant de la cagnotte vers le budget du mois : le montant est ajouté au
+    /// reste du mois (il redevient disponible). Aucun plafond côté mois, seule la cagnotte
+    /// globale (<see cref="Cagnotte.Retirer"/>) refuse un retrait supérieur à son solde.
+    /// Un retrait ajoute une facture NÉGATIVE (− montant) dans la catégorie réservée « Cagnotte ».
+    /// </summary>
+    /// <param name="montant">Montant à récupérer, strictement positif.</param>
+    /// <exception cref="ArgumentException">Si le montant est nul, négatif, NaN ou infini.</exception>
+    /// <exception cref="InvalidDataException">Si le nouveau total ou le nouveau reste du
+    /// mois déborde de la plage flottante.</exception>
+    public void RecupererDeCagnotte(float montant)
+    {
+        Validation.VerifierMontantPositif(montant);
+
+        // Le nouveau total et le nouveau reste sont vérifiés AVANT toute mutation : un retrait
+        // qui pousse le total mis en cagnotte très négatif peut faire déborder le reste
+        // (`revenue − dépenses` avec dépenses très négatives) vers +∞ alors même que le total
+        // reste fini (ex. revenue = float.MaxValue, retrait = float.MaxValue).
+        // Sans cette garde, le débordement éclaterait pendant RecalculerReste, APRÈS l'ajout
+        // de la ligne de cagnotte — état corrompu et fichier d'année mis de côté au prochain
+        // chargement (transactionnalité).
+        float nouveauTotal = _totalExpenses - montant;
+        float nouveauReste = _revenue - nouveauTotal;
+
+        if (float.IsInfinity(nouveauTotal) || float.IsInfinity(nouveauReste))
+        {
+            throw new InvalidDataException("Le reste du budget déborde de la plage flottante.");
+        }
+
+        CreerLigneCagnotte(-montant, date: null);
+        RecalculerTotaux();
+    }
+
+    /// <summary>
     /// Ajoute une catégorie de dépense après vérification : nom non vide et unique.
     /// La dépense faite est mise à 0 et l'id vaut l'id précédent + 1.
     /// </summary>
     /// <param name="nom">Nom de la catégorie.</param>
-    /// <exception cref="ArgumentException">Si le nom est vide ou déjà utilisé.</exception>
+    /// <exception cref="ArgumentException">Si le nom est vide, déjà utilisé ou réservé à la
+    /// cagnotte (« Cagnotte »).</exception>
     public void AjouterCategorie(string nom)
     {
         Validation.VerifierNomNonVide(nom);
+
+        if (string.Equals(nom, NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Le nom \"{nom}\" est réservé à la cagnotte : supprimez une dépense de la cagnotte par l'opération inverse.", nameof(nom));
+        }
+
         Validation.VerifierNomUnique(nom, _expenseCategories.Select(categorie => categorie.Item2));
 
         int prochainId = _expenseCategories.Length == 0
@@ -145,11 +270,19 @@ public class MonthBudget
     /// <param name="nom">Nom de la catégorie à supprimer.</param>
     /// <returns>Nombre de factures supprimées avec la catégorie.</returns>
     /// <exception cref="ArgumentException">Si le nom est vide, si la catégorie n'existe
-    /// pas dans le mois ou si elle est la seule du mois. Aucune mutation n'est effectuée
-    /// dans ce cas.</exception>
+    /// pas dans le mois, si elle est la seule du mois ou si elle est la catégorie réservée
+    /// de la cagnotte (« Cagnotte »). Aucune mutation n'est effectuée dans ce cas.</exception>
     public int SupprimerCategorie(string nom)
     {
         Validation.VerifierNomNonVide(nom);
+
+        // La catégorie de cagnotte est protégée : la supprimer laisserait ses mouvements signés
+        // orphelins (fichier d'année rejeté au prochain chargement) et désynchroniserait le pot.
+        if (string.Equals(nom, NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"La catégorie \"{nom}\" est réservée à la cagnotte : elle ne peut pas être supprimée.", nameof(nom));
+        }
 
         Tuple<int, string, float>? categorie = _expenseCategories
             .FirstOrDefault(categorie => string.Equals(categorie.Item2, nom, StringComparison.OrdinalIgnoreCase));
@@ -276,15 +409,20 @@ public class MonthBudget
     }
 
     /// <summary>
-    /// Supprime définitivement une facture du mois (par id).
+    /// Supprime définitivement une facture du mois (par id). Un mouvement de cagnotte n'est
+    /// jamais supprimable : l'annulation se fait par l'opération inverse sur la cagnotte,
+    /// sinon le pot global divergerait de la ligne. (Retrait refusé avant toute mutation.)
     /// </summary>
     /// <param name="id">Identifiant de la facture à supprimer.</param>
-    /// <exception cref="ArgumentException">Si aucune facture ne correspond à cet id.</exception>
+    /// <exception cref="ArgumentException">Si aucune facture ne correspond à cet id ou si la
+    /// facture est un mouvement de cagnotte.</exception>
     public void SupprimerFacture(int id)
     {
         Validation.VerifierFactureExiste(id, _factures.Select(facture => facture.Id));
 
         Facture aSupprimer = _factures.First(facture => facture.Id == id);
+        VerifierMouvementSupprimable(aSupprimer);
+
         _factures.Remove(aSupprimer);
         RecalculerTotaux();
     }
@@ -293,13 +431,15 @@ public class MonthBudget
     /// Supprime définitivement plusieurs factures du mois (par ids). La liste est dédoublonnée
     /// et tous les ids sont vérifiés AVANT toute mutation : si un id est inconnu, aucune facture
     /// n'est supprimée (transactionnalité, même garde que <see cref="SupprimerCategorie"/>).
-    /// Un seul recalcul des totaux est effectué pour l'ensemble supprimé.
+    /// Un mouvement de cagnotte est toujours exclu (annulation = opération inverse). Un seul
+    /// recalcul des totaux est effectué pour l'ensemble supprimé.
     /// </summary>
     /// <param name="ids">Identifiants des factures à supprimer.</param>
     /// <returns>Nombre de factures supprimées.</returns>
     /// <exception cref="ArgumentNullException">Si <paramref name="ids"/> est <c>null</c>.</exception>
-    /// <exception cref="ArgumentException">Si la liste est vide ou si un id ne correspond à
-    /// aucune facture. Aucune mutation n'est effectuée dans ce cas.</exception>
+    /// <exception cref="ArgumentException">Si la liste est vide, si un id ne correspond à
+    /// aucune facture ou si un id désigne un mouvement de cagnotte. Aucune mutation n'est
+    /// effectuée dans ce cas.</exception>
     public int SupprimerFactures(IReadOnlyCollection<int> ids)
     {
         ArgumentNullException.ThrowIfNull(ids);
@@ -315,10 +455,87 @@ public class MonthBudget
             Validation.VerifierFactureExiste(id, idsExistants);
         }
 
+        foreach (Facture facture in _factures.Where(facture => idsUniques.Contains(facture.Id)))
+        {
+            VerifierMouvementSupprimable(facture);
+        }
+
         _factures.RemoveAll(facture => idsUniques.Contains(facture.Id));
         RecalculerTotaux();
 
         return idsUniques.Count;
+    }
+
+    /// <summary>
+    /// Refuse la suppression d'un mouvement de cagnotte identifié comme à supprimer.
+    /// </summary>
+    /// <param name="facture">Mouvement de cagnotte sélectionné.</param>
+    /// <exception cref="ArgumentException">Si la facture est un mouvement de cagnotte.</exception>
+    private static void VerifierMouvementSupprimable(Facture facture)
+    {
+        if (!facture.EstMouvementCagnotte)
+        {
+            return;
+        }
+
+        throw new ArgumentException(
+            "Les mouvements de cagnotte ne se suppriment pas : annulez le retrait par un dépôt ou le dépôt par un retrait.");
+    }
+
+    /// <summary>
+    /// Indique si le mois porte au moins un mouvement de cagnotte signé.
+    /// </summary>
+    private bool aDesMouvementsCagnotte()
+    {
+        return _factures.Any(facture => facture.EstMouvementCagnotte);
+    }
+
+    /// <summary>
+    /// Identifiant de la catégorie réservée « Cagnotte » si elle existe dans le mois, sinon <c>null</c>.
+    /// Une catégorie déjà nommée ainsi (fichier antérieur) devient la catégorie de cagnotte du mois.
+    /// </summary>
+    private int? IdCategorieReservee()
+    {
+        Tuple<int, string, float>? categorie = _expenseCategories
+            .FirstOrDefault(categorie => string.Equals(categorie.Item2, NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase));
+        return categorie?.Item1;
+    }
+
+    /// <summary>
+    /// Ajoute une ligne de cagnotte : catégorie réservée créée si absente, puis facture signée
+    /// (montant positif = dépôt, négatif = retrait). Sans recalcul : l'appelant enchaîne
+    /// <see cref="RecalculerTotaux"/> après avoir validé le nouvel état (transactionnalité).
+    /// </summary>
+    /// <param name="montant">Montant signé, non nul et fini.</param>
+    /// <param name="date">Date du mouvement ; sans date, aujourd'hui ou le 1er du mois (règle par défaut).</param>
+    private void CreerLigneCagnotte(float montant, DateTime? date)
+    {
+        int idCategorie = IdCategorieReservee() ?? AjouterCategorieReservee();
+
+        int prochainId = _factures.Count == 0
+            ? 1
+            : _factures.Max(facture => facture.Id) + 1;
+
+        _factures.Add(new Facture(prochainId, idCategorie, montant, ResoudreDate(date), mouvementCagnotte: true));
+    }
+
+    /// <summary>
+    /// Ajoute la catégorie réservée « Cagnotte » (id précédent maximum + 1) sans aucune garde
+    /// de nom : réservé à la logique interne de la cagnotte, contrairement à <see cref="AjouterCategorie"/>.
+    /// </summary>
+    private int AjouterCategorieReservee()
+    {
+        int prochainId = _expenseCategories.Length == 0
+            ? 1
+            : _expenseCategories.Max(categorie => categorie.Item1) + 1;
+
+        var nouvelleCategorie = new Tuple<int, string, float>(prochainId, NomCategorieCagnotte, 0f);
+        var tableau = new Tuple<int, string, float>[_expenseCategories.Length + 1];
+        Array.Copy(_expenseCategories, tableau, _expenseCategories.Length);
+        tableau[^1] = nouvelleCategorie;
+        _expenseCategories = tableau;
+
+        return prochainId;
     }
 
     /// <summary>
@@ -371,8 +588,11 @@ public class MonthBudget
     }
 
     /// <summary>
-    /// Calcule et modifie le reste du budget (revenue - total des dépenses), en refusant
-    /// le débordement flottant silencieux (même garde que le total et les catégories).
+    /// Calcule et modifie le reste du budget (revenue - total des dépenses), en refusant le
+    /// débordement flottant silencieux (même garde que le total et les catégories). Les
+    /// mouvements de cagnotte étant comptés dans le total (dépôt positif, retrait négatif),
+    /// l'argent mis de côté par ce mois n'est pas disponible à la dépense, comme le stipule la
+    /// règle métier historique (revenue − dépenses − montantCagnotte).
     /// </summary>
     /// <exception cref="InvalidDataException">Si le reste déborde de la plage float.</exception>
     private void RecalculerReste()

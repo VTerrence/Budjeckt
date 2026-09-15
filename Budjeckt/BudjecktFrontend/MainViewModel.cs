@@ -26,6 +26,11 @@ public partial class MainViewModel : ObservableObject
     private Bud _budjeckt = new();
     private string _cheminFichier = string.Empty;
     private readonly string _repertoireDonnees;
+    /// <summary>
+    /// Cagnotte globale (fichier <c>cagnotte.json</c>) : le solde est commun à toutes les années.
+    /// Un dépôt retranche le montant du reste du mois affiché ; un retrait l'y réinjecte.
+    /// </summary>
+    private Cagnotte _cagnotte = new();
     /// <summary>Confirmation des suppressions d'années (années cochées → consentement).</summary>
     private readonly Func<List<int>, bool>? _confirmerSuppression;
     /// <summary>Confirmation de la suppression d'une catégorie (nom, nombre de factures → consentement).</summary>
@@ -117,6 +122,14 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _revenueSaisi = string.Empty;
 
+    /// <summary>Solde de la cagnotte affiché (ex. « 250,00 € »), commun à toutes les années.</summary>
+    [ObservableProperty]
+    private string _soldeCagnotteTexte = string.Empty;
+
+    /// <summary>Montant saisi pour un dépôt ou un retrait de cagnotte.</summary>
+    [ObservableProperty]
+    private string _montantCagnotteSaisi = string.Empty;
+
     /// <summary>Nom de la catégorie à ajouter pour toute l'année (formulaire).</summary>
     [ObservableProperty]
     private string _nouvelleCategorieSaisie = string.Empty;
@@ -177,6 +190,7 @@ public partial class MainViewModel : ObservableObject
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "Budjeckt");
         Directory.CreateDirectory(_repertoireDonnees);
+        ChargerCagnotte();
 
         // La disponibilité de la suppression de dépenses suit la sélection multi-du DataGrid
         // (remplie par DataGridSelectionBehavior) : notifier à chaque changement de collection.
@@ -239,6 +253,38 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Charge la cagnotte globale depuis <c>cagnotte.json</c> et affiche son solde. Un fichier
+    /// corrompu est mis de côté puis la cagnotte repart à zéro ; un dossier illisible laisse une
+    /// cagnotte vide silencieusement (l'application démarre quand même).
+    /// </summary>
+    private void ChargerCagnotte()
+    {
+        string chemin = Path.Combine(_repertoireDonnees, Cagnotte.NomFichier);
+        try
+        {
+            _cagnotte.ChargerJson(chemin);
+        }
+        catch (InvalidDataException)
+        {
+            // Fichier illisible ou solde non conforme : mis de côté (jamais écrasé) puis
+            // réinitialisé — le contenu était déjà invalide, rien de récupérable n'est perdu.
+            MettreDeCoteFichierCorrompu(chemin);
+            _cagnotte = new Cagnotte();
+            _erreurAction = "Le fichier de la cagnotte était illisible : il a été réinitialisé.";
+            MessageErreur = _erreurAction;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Dossier verrouillé, en lecture seule ou inaccessible : la cagnotte démarre vide,
+            // la sauvegarde suivante réessaiera d'écrire (message d'échec si elle y arrive
+            // toujours pas). Message unique pour ne jamais laisser croire à un solde réellement nul.
+            AfficherErreurAction("Impossible de lire le fichier de la cagnotte : il démarre à 0,00 €. Vérifiez les autorisations du dossier.");
+        }
+
+        SoldeCagnotteTexte = Formatage.Montant(_cagnotte.Solde);
+    }
+
+    /// <summary>
     /// Ouvre l'année demandée : chargement du fichier existant ou création d'une année
     /// vierge, puis rafraîchit l'état du mois affiché. En cas de fichier corrompu, il est
     /// mis de côté et l'année est réinitialisée (l'application démarre quand même).
@@ -268,12 +314,7 @@ public partial class MainViewModel : ObservableObject
             _erreurAction = $"Le fichier de l'année {annee} était illisible : il a été mis de côté et réinitialisé.";
             MessageErreur = _erreurAction;
         }
-        catch (IOException)
-        {
-            AfficherErreurAction("Impossible d'ouvrir le dossier de données. Vérifiez les autorisations.");
-            return;
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             AfficherErreurAction("Impossible d'ouvrir le dossier de données. Vérifiez les autorisations.");
             return;
@@ -519,12 +560,9 @@ public partial class MainViewModel : ObservableObject
             catch (InvalidDataException)
             {
             }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
+catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
 
             RafraichirAnneesDepuisDisque();
         }
@@ -602,10 +640,7 @@ public partial class MainViewModel : ObservableObject
                 Annees.Add(annee);
             }
         }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
         }
     }
@@ -760,6 +795,160 @@ public partial class MainViewModel : ObservableObject
         catch (InvalidDataException exception)
         {
             AfficherErreurAction(exception.Message);
+        }
+    }
+
+    private bool PeutDeposerEnCagnotte()
+    {
+        // Le dépôt sort du budget du mois affiché : plafonné au reste disponible non négatif.
+        return EssayerMontant(MontantCagnotteSaisi, out float montant)
+               && float.IsFinite(montant) && montant > 0f
+               && montant <= MoisCourant.BudgetRemaining;
+    }
+
+    /// <summary>
+    /// Dépose le montant saisi dans la cagnotte : il est retiré du reste du mois affiché
+    /// (et de la répartition hebdomadaire), puis sauvegardé dans les deux fichiers (année
+    /// et <c>cagnotte.json</c>). Plafonné au reste non négatif du mois par
+    /// <see cref="PeutDeposerEnCagnotte"/> et par la garde backend.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(PeutDeposerEnCagnotte))]
+    private void DeposerEnCagnotte()
+    {
+        if (!EssayerMontant(MontantCagnotteSaisi, out float montant) || !float.IsFinite(montant) || montant <= 0f)
+        {
+            return;
+        }
+
+        // Garde transactionnelle : les deux opérations (mois puis cagnotte) doivent réussir
+        // ensemble. MettreDeCote ne lève pas après coup (montant vérifié en amont), seul
+        // Deposer peut refuser un solde qui déborderait — vérifié avant toute mutation pour
+        // ne jamais créer d'écart entre le mois et la cagnotte.
+        if (float.IsInfinity(_cagnotte.Solde + montant))
+        {
+            AfficherErreurAction("Impossible de déposer ce montant : le solde de la cagnotte déborderait.");
+            return;
+        }
+
+        try
+        {
+            MoisCourant.MettreDeCote(montant);
+            _cagnotte.Deposer(montant);
+
+            if (SauvegarderCagnotte() && Sauvegarder())
+            {
+                _erreurAction = string.Empty;
+                MessageErreur = string.Empty;
+            }
+
+            MontantCagnotteSaisi = string.Empty;
+            ActualiserSynthese();
+            // Le dépôt crée une facture signée (+M) réelle : la liste doit être rafraîchie
+            // pour que le mouvement apparaisse immédiatement dans l'historique du mois.
+            ActualiserListe();
+            SoldeCagnotteTexte = Formatage.Montant(_cagnotte.Solde);
+        }
+        catch (ArgumentException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+        catch (InvalidDataException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+    }
+
+    private bool PeutRetirerDeCagnotte()
+    {
+        // Le retrait revient dans le budget du mois affiché : plafonné au solde de la cagnotte.
+        return EssayerMontant(MontantCagnotteSaisi, out float montant)
+               && float.IsFinite(montant) && montant > 0f
+               && montant <= _cagnotte.Solde;
+    }
+
+    /// <summary>
+    /// Retire le montant saisi de la cagnotte : il est réinjecté dans le reste du mois affiché
+    /// (et dans la répartition hebdomadaire), puis sauvegardé dans les deux fichiers (année
+    /// et <c>cagnotte.json</c>). Plafonné au solde de la cagnotte par
+    /// <see cref="PeutRetirerDeCagnotte"/> et par la garde backend.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(PeutRetirerDeCagnotte))]
+    private void RetirerDeCagnotte()
+    {
+        if (!EssayerMontant(MontantCagnotteSaisi, out float montant) || !float.IsFinite(montant) || montant <= 0f)
+        {
+            return;
+        }
+
+        // Vérifications avant toute mutation : le retrait doit laisser la cagnotte et le mois
+        // dans un état cohérent (transactionnalité de la paire). La méthode du mois est appelée
+        // EN PREMIER car elle vérifie elle-même le nouveau reste avant de muter : si elle lève,
+        // rien n'est modifié et la cagnotte n'a pas encore été débitée. Le plafond du retrait
+        // est recalculé ici (et non seulement dans CanExecute) pour qu'un retrait échouant ne
+        // laisse jamais un mois crédité sans cagnotte débitée.
+        if (montant > _cagnotte.Solde)
+        {
+            AfficherErreurAction(
+                $"Impossible de retirer {montant} € : le solde de la cagnotte est de {_cagnotte.Solde} €.");
+            return;
+        }
+
+        try
+        {
+            MoisCourant.RecupererDeCagnotte(montant);
+            _cagnotte.Retirer(montant);
+
+            // Double sauvegarde : cagnotte d'abord, année ensuite (choix et fenêtre résiduelle
+            // documentés sur <see cref="SauvegarderCagnotte"/>).
+            if (SauvegarderCagnotte() && Sauvegarder())
+            {
+                _erreurAction = string.Empty;
+                MessageErreur = string.Empty;
+            }
+
+            MontantCagnotteSaisi = string.Empty;
+            ActualiserSynthese();
+            // Le retrait crée une facture signée (−M) réelle : la liste doit être rafraîchie
+            // pour que le mouvement réapparaisse immédiatement dans l'historique du mois.
+            ActualiserListe();
+            SoldeCagnotteTexte = Formatage.Montant(_cagnotte.Solde);
+        }
+        catch (ArgumentException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+        catch (InvalidDataException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Sauvegarde la cagnotte globale dans <c>cagnotte.json</c> ; en cas d'échec, affiche un
+    /// message générique (sans exposer de détail technique interne) et retourne <c>false</c>.
+    /// <para>
+    /// Ordre des deux écritures d'un dépôt/retrait (appelé AVANT <see cref="Sauvegarder"/>,
+    /// via le `&amp;&amp;` court-circuit) : si l'écriture de la cagnotte échoue, l'année n'est
+    /// pas écrite — aucun des deux fichiers n'enregistre le mouvement, l'écart mémoire/disque
+    /// suit la convention habituelle (l'erreur durable reste affichée). Fenêtre résiduelle
+    /// documentée : si la cagnotte réussit mais que l'année échoue ensuite, au prochain
+    /// lancement le pot affichera le mouvement sans qu'il apparaisse dans le reste du mois —
+    /// le cas inverse (année à jour, cagnotte perdue) ferait « disparaître » l'argent du pot,
+    /// d'où l'ordre actuel qui garde la fenêtre résiduelle la moins coûteuse.
+    /// </para>
+    /// </summary>
+    /// <returns><c>true</c> si la sauvegarde a abouti, sinon <c>false</c>.</returns>
+    private bool SauvegarderCagnotte()
+    {
+        try
+        {
+            _cagnotte.SauvegarderJson(Path.Combine(_repertoireDonnees, Cagnotte.NomFichier));
+            return true;
+        }
+        catch (Exception)
+        {
+            AfficherErreurAction("Impossible de sauvegarder la cagnotte. Vérifiez les autorisations du dossier de l'application.");
+            return false;
         }
     }
 
@@ -1158,6 +1347,13 @@ public partial class MainViewModel : ObservableObject
     {
         MettreAJourErreurSaisie();
         AjouterFactureCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Répercute la saisie d'un montant de cagnotte sur la disponibilité des commandes.</summary>
+    partial void OnMontantCagnotteSaisiChanged(string value)
+    {
+        DeposerEnCagnotteCommand.NotifyCanExecuteChanged();
+        RetirerDeCagnotteCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnIndexCategorieAjoutChanged(int value)

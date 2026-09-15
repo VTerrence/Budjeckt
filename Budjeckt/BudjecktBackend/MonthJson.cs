@@ -12,6 +12,12 @@ internal class MonthJson
     /// <summary>Budget du mois.</summary>
     public float Revenue { get; set; }
 
+    /// <summary>
+    /// Montant net que ce mois a mis en cagnotte : positif = mis de côté, négatif = réinjecté
+    /// depuis la cagnotte. Alternative 0 pour les fichiers antérieurs à la cagnotte.
+    /// </summary>
+    public float MontantCagnotte { get; set; }
+
     /// <summary>Catégories de dépense du mois (id + nom).</summary>
     public List<CategoryJson>? Categories { get; set; }
 

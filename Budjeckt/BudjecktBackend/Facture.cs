@@ -3,6 +3,8 @@ namespace Budjeckt;
 /// <summary>
 /// Dépense individuelle (facture) rattachée à une catégorie de dépense d'un mois.
 /// Immuable : identifiant, catégorie, montant, date et heure (optionnelle) sont fixés à la création.
+/// Une dépense ordinaire a un montant strictement positif ; un mouvement de cagnotte (voir
+/// <see cref="EstMouvementCagnotte"/>) porte au contraire un montant signé, non nul.
 /// </summary>
 public class Facture
 {
@@ -12,7 +14,10 @@ public class Facture
     /// <summary>Identifiant de la catégorie de dépense associée.</summary>
     public int IdCategorie { get; }
 
-    /// <summary>Montant de la dépense, strictement positif.</summary>
+    /// <summary>
+    /// Montant de la facture : strictement positif pour une dépense ordinaire ; signé (non nul)
+    /// pour un mouvement de cagnotte (positif = dépôt, négatif = retrait).
+    /// </summary>
     public float Montant { get; }
 
     /// <summary>Date de la dépense.</summary>
@@ -20,6 +25,14 @@ public class Facture
 
     /// <summary>Heure de la dépense (optionnelle, <c>null</c> si non renseignée).</summary>
     public TimeSpan? Heure { get; }
+
+    /// <summary>
+    /// <c>true</c> pour un mouvement de cagnotte : ligne générée par
+    /// <see cref="MonthBudget.MettreDeCote"/> / <see cref="MonthBudget.RecupererDeCagnotte"/>,
+    /// rattachée à la catégorie réservée « Cagnotte », au montant signé et non supprimable
+    /// depuis l'interface (l'annulation se fait par l'opération inverse sur la cagnotte).
+    /// </summary>
+    public bool EstMouvementCagnotte { get; }
 
     /// <summary>
     /// Crée une facture après validation du montant (strictement positif), de la date
@@ -59,5 +72,35 @@ public class Facture
         // ce qui unifie la normalisation entre saisie, chargement et construction directe.
         Date = date.Date;
         Heure = heure;
+        EstMouvementCagnotte = false;
+    }
+
+    /// <summary>
+    /// Crée un mouvement de cagnotte (montant signé, non nul) rattaché à la catégorie réservée.
+    /// Interne : seule la logique métier de la cagnotte (<see cref="MonthBudget"/>) construit
+    /// de telles lignes, jamais la saisie d'une dépense ordinaire.
+    /// </summary>
+    /// <param name="id">Identifiant unique du mouvement.</param>
+    /// <param name="idCategorie">Identifiant de la catégorie réservée « Cagnotte ».</param>
+    /// <param name="montant">Montant signé, non nul et fini (positif = dépôt, négatif = retrait).</param>
+    /// <param name="date">Date du mouvement.</param>
+    /// <exception cref="ArgumentException">Si le montant est nul, NaN, infini ou si la date est
+    /// hors de l'intervalle plausible (1900-2100).</exception>
+    internal Facture(int id, int idCategorie, float montant, DateTime date, bool mouvementCagnotte)
+    {
+        _ = mouvementCagnotte;
+
+        if (montant == 0f || float.IsNaN(montant) || float.IsInfinity(montant))
+        {
+            throw new ArgumentException("Le montant d'un mouvement de cagnotte doit être non nul et fini.", nameof(montant));
+        }
+
+        Validation.VerifierDatePlausible(date);
+        Id = id;
+        IdCategorie = idCategorie;
+        Montant = montant;
+        Date = date.Date;
+        Heure = null;
+        EstMouvementCagnotte = true;
     }
 }
