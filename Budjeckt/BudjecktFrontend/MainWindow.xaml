@@ -135,6 +135,10 @@
                             <TextBlock Text="Heure (optionnelle, HH:mm)" Margin="0,10,0,3"/>
                             <TextBox Text="{Binding HeureSaisie, UpdateSourceTrigger=PropertyChanged}"
                                      ToolTip="Format HH:mm, ex. 14:30. Laisser vide si aucune heure."/>
+                            <CheckBox Content="Facture par défaut — se répète chaque mois"
+                                      IsChecked="{Binding EstFactureParDefaut}"
+                                      Margin="0,10,0,0"
+                                      ToolTip="Crée la dépense dans ce mois ET la reproduit automatiquement dans les mois suivants (même catégorie et même montant) jusqu'à la suppression de l'une de ses copies."/>
                             <TextBlock Text="{Binding MessageErreur}"
                                        Foreground="#C62828" TextWrapping="Wrap"
                                        MinHeight="32" Margin="0,8,0,0"/>

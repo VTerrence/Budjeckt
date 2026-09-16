@@ -19,4 +19,7 @@ internal class FactureJson
 
     /// <summary>Heure de la dépense (optionnelle).</summary>
     public TimeSpan? Heure { get; set; }
+
+    /// <summary>Indique si la dépense matérialise une facture par défaut (récurrente).</summary>
+    public bool EstParDefaut { get; set; }
 }

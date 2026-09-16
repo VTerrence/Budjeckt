@@ -35,6 +35,15 @@ public class Facture
     public bool EstMouvementCagnotte { get; }
 
     /// <summary>
+    /// <c>true</c> si la dépense matérialise une facture par défaut (récurrente) : marquée
+    /// à la création d'un défaut ou par la reproduction automatique dans un mois suivant
+    /// (<see cref="Budjeckt.AppliquerFacturesParDefaut"/>). Permet de distinguer la
+    /// reproduction d'un modèle d'une dépense ordinaire saisie manuellement, pour l'idempotence
+    /// et la désactivation du récurrent lors de la suppression.
+    /// </summary>
+    public bool EstParDefaut { get; }
+
+    /// <summary>
     /// Crée une facture après validation du montant (strictement positif), de la date
     /// (année 1900-2100) et de l'heure (optionnelle).
     /// </summary>
@@ -58,9 +67,10 @@ public class Facture
     /// <param name="montant">Montant de la dépense (strictement positif).</param>
     /// <param name="date">Date de la dépense.</param>
     /// <param name="heure">Heure de la dépense (optionnelle).</param>
+    /// <param name="estParDefaut">Marque la dépense comme reproduction d'une facture par défaut (récurrente).</param>
     /// <exception cref="ArgumentException">Si le montant n'est pas strictement positif, si l'heure est invalide
     /// ou si l'année de la date est hors de l'intervalle plausible (1900-2100).</exception>
-    public Facture(int id, int idCategorie, float montant, DateTime date, TimeSpan? heure)
+    public Facture(int id, int idCategorie, float montant, DateTime date, TimeSpan? heure, bool estParDefaut = false)
     {
         Validation.VerifierMontantPositif(montant);
         Validation.VerifierDatePlausible(date);
@@ -73,6 +83,7 @@ public class Facture
         Date = date.Date;
         Heure = heure;
         EstMouvementCagnotte = false;
+        EstParDefaut = estParDefaut;
     }
 
     /// <summary>

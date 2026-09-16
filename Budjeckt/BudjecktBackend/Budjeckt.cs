@@ -11,6 +11,7 @@ public class Budjeckt
 {
     private string _annee;
     private MonthBudget[] _mois;
+    private List<FactureParDefaut> _facturesParDefaut = new();
 
     /// <summary>Nom du fichier hérité, sans année (« depenses.json »).</summary>
     public const string NomFichierHerite = "depenses.json";
@@ -107,6 +108,149 @@ public class Budjeckt
     }
 
     /// <summary>
+    /// Factures par défaut (récurrentes) de l'année, en lecture seule. Chaque défaut est
+    /// reproduit automatiquement dans les mois dont le rang est supérieur ou égal à son mois
+    /// de création et qui possèdent la catégorie ciblée, à condition qu'il soit actif.
+    /// </summary>
+    public IReadOnlyList<FactureParDefaut> FacturesParDefaut => _facturesParDefaut.AsReadOnly();
+
+    /// <summary>
+    /// Enregistre (ou réactive s'il existait déjà, même désactivé) un défaut récurrent pour
+    /// une catégorie. Le mois de création est retenu pour ne reproduire le défaut que dans
+    /// les mois de rang supérieur ou égal à celui-ci. La catégorie « Cagnotte » est refusée :
+    /// les mouvements de cagnotte ne sont pas des factures par défaut.
+    /// </summary>
+    /// <param name="nomCategorie">Nom de la catégorie ciblée.</param>
+    /// <param name="montant">Montant de la facture à reproduire (strictement positif).</param>
+    /// <param name="moisCreation">Rang (1 à 12) du mois où le défaut est posé.</param>
+    /// <exception cref="ArgumentException">Si le nom est vide, si le montant n'est pas strictement
+    /// positif, si le mois de création est hors de la plage [1, 12] ou si la catégorie est
+    /// la catégorie réservée « Cagnotte ».</exception>
+    public void AjouterFactureParDefaut(string nomCategorie, float montant, int moisCreation)
+    {
+        Validation.VerifierNomNonVide(nomCategorie);
+        Validation.VerifierMontantPositif(montant);
+
+        if (moisCreation < 1 || moisCreation > 12)
+        {
+            throw new ArgumentException("Le mois de création d'un défaut doit être compris entre 1 et 12.", nameof(moisCreation));
+        }
+
+        string nom = nomCategorie.Trim();
+
+        if (string.Equals(nom, MonthBudget.NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Les mouvements de cagnotte ne peuvent pas être des factures par défaut.", nameof(nomCategorie));
+        }
+
+        FactureParDefaut? existant = _facturesParDefaut.FirstOrDefault(
+            defaut => string.Equals(defaut.NomCategorie, nom, StringComparison.OrdinalIgnoreCase)
+                      && defaut.Montant == montant);
+
+        if (existant is not null)
+        {
+            existant.Reactiver();
+            return;
+        }
+
+        _facturesParDefaut.Add(new FactureParDefaut(nom, montant, moisCreation));
+    }
+
+    /// <summary>
+    /// Désactive le défaut récurrent correspondant au couple (catégorie, montant) s'il existe.
+    /// Les mois de rang supérieur ou égal au défaut n'obtiendront plus de factures reproduites,
+    /// mais les factures déjà matérialisées ne sont pas touchées.
+    /// </summary>
+    /// <param name="nomCategorie">Nom de la catégorie ciblée.</param>
+    /// <param name="montant">Montant du défaut à désactiver.</param>
+    public void DesactiverFactureParDefaut(string nomCategorie, float montant)
+    {
+        if (string.IsNullOrWhiteSpace(nomCategorie))
+        {
+            return;
+        }
+
+        FactureParDefaut? defaut = _facturesParDefaut.FirstOrDefault(
+            defaut => string.Equals(defaut.NomCategorie, nomCategorie.Trim(), StringComparison.OrdinalIgnoreCase)
+                      && defaut.Montant == montant);
+
+        defaut?.Desactiver();
+    }
+
+    /// <summary>
+    /// Désactive tous les défauts récurrents dont la catégorie correspond (comparaison
+    /// insensible à la casse) : utilisé lors de la suppression d'une catégorie pour que les
+    /// mois suivants ne reproduisent plus des factures d'une catégorie disparue.
+    /// </summary>
+    /// <param name="nomCategorie">Nom de la catégorie supprimée.</param>
+    public void DesactiverFacturesParDefautDeCategorie(string nomCategorie)
+    {
+        if (string.IsNullOrWhiteSpace(nomCategorie))
+        {
+            return;
+        }
+
+        string nom = nomCategorie.Trim();
+        foreach (FactureParDefaut defaut in _facturesParDefaut.Where(
+                     defaut => string.Equals(defaut.NomCategorie, nom, StringComparison.OrdinalIgnoreCase)))
+        {
+            defaut.Desactiver();
+        }
+    }
+
+    /// <summary>
+    /// Applique au mois fourni les défauts récurrents actifs dont le mois de création est
+    /// antérieur ou égal au rang du mois, et dont la catégorie existe dans ce mois. La
+    /// reproduction est idempotente : un défaut déjà matérialisé dans le mois (facture marquée
+    /// <see cref="Facture.EstParDefaut"/>) n'est pas dupliqué. Ne reproduit jamais les
+    /// mouvements de cagnotte.
+    /// </summary>
+    /// <param name="mois">Mois cible (de l'année courante).</param>
+    /// <returns>Nombre de factures effectivement créées (0 si le mois est inconnu, si toutes les
+    /// catégories sont absentes, ou si tous les défauts sont déjà appliqués).</returns>
+    public int AppliquerFacturesParDefaut(MonthBudget mois)
+    {
+        ArgumentNullException.ThrowIfNull(mois);
+
+        int? indexMois = Validation.IndexDuMois(mois.Nom);
+        if (indexMois is null)
+        {
+            return 0;
+        }
+
+        int nb = 0;
+        foreach (FactureParDefaut defaut in _facturesParDefaut.Where(
+                     defaut => defaut.EstActive && defaut.MoisCreation <= indexMois.Value))
+        {
+            if (string.Equals(defaut.NomCategorie, MonthBudget.NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            Tuple<int, string, float>? categorie = mois.ExpenseCategories
+                .FirstOrDefault(c => string.Equals(c.Item2, defaut.NomCategorie, StringComparison.OrdinalIgnoreCase));
+
+            if (categorie is null)
+            {
+                continue;
+            }
+
+            bool dejaApplique = mois.Factures.Any(
+                f => f.EstParDefaut && f.IdCategorie == categorie.Item1 && f.Montant == defaut.Montant);
+
+            if (dejaApplique)
+            {
+                continue;
+            }
+
+            mois.AjouterFacture(categorie.Item1, defaut.Montant, date: null, heure: null, estParDefaut: true);
+            nb++;
+        }
+
+        return nb;
+    }
+
+    /// <summary>
     /// Charge les données depuis un fichier JSON. Décomposée en sous-méthodes :
     /// lecture du fichier, désérialisation, validation de la structure puis application au modèle.
     /// Si le fichier n'existe pas, les données par défaut sont conservées (premier lancement).
@@ -191,8 +335,9 @@ public class Budjeckt
     /// Vérifie que la structure du JSON est correcte : année présente et numérique, exactement 12 mois
     /// dont le nom est connu, chaque mois avec des catégories nommées à ids uniques, aucun élément nul,
     /// montants finis et strictement positifs, heure optionnelle dans [00:00, 24:00), date plausible
-    /// appartenant au mois affiché et à l'année déclarée, et chaque facture liée à une catégorie
-    /// existante à ids uniques.
+    /// appartenant au mois affiché et à l'année déclarée, chaque facture liée à une catégorie
+    /// existante à ids uniques, et factures par défaut (optionnelles) bien formées, sans doublon
+    /// catégorie/montant, ni cible réservée « Cagnotte ».
     /// </summary>
     private static void ValiderJson(BudjecktJson donnees)
     {
@@ -327,6 +472,14 @@ public class Budjeckt
                         $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a une heure invalide.");
                 }
 
+                // Un mouvement de cagnotte ne peut pas être une facture par défaut : les mouvements
+                // de cagnotte sont des opérations ponctuelles générées par l'interface.
+                if (estMouvementCagnotte && facture.EstParDefaut)
+                {
+                    throw new InvalidDataException(
+                        $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" est un mouvement de cagnotte marqué comme facture par défaut.");
+                }
+
                 // La date doit rester plausible (armure contre les dates 9999) et tomber sur le mois affiché.
                 if (!Validation.DateEstPlausible(facture.Date))
                 {
@@ -344,6 +497,52 @@ public class Budjeckt
                 {
                     throw new InvalidDataException(
                         $"La facture d'id {facture.Id} du mois \"{mois.Nom}\" a une date dont l'année {facture.Date.Year} ne correspond pas à l'année déclarée {annee}.");
+                }
+            }
+        }
+
+        // Validation de la liste des factures par défaut (optionnelle — absente dans les
+        // fichiers antérieurs à la fonctionnalité).
+        if (donnees.FacturesParDefaut is not null)
+        {
+            HashSet<string> vus = new(StringComparer.OrdinalIgnoreCase);
+            foreach (FactureParDefautJson defaut in donnees.FacturesParDefaut)
+            {
+                if (defaut is null)
+                {
+                    throw new InvalidDataException("Un défaut de facture récurrente du fichier JSON est nul.");
+                }
+
+                if (string.IsNullOrWhiteSpace(defaut.Categorie))
+                {
+                    throw new InvalidDataException("Un défaut de facture récurrente n'a pas de nom de catégorie.");
+                }
+
+                if (defaut.Montant <= 0f || float.IsNaN(defaut.Montant) || float.IsInfinity(defaut.Montant))
+                {
+                    throw new InvalidDataException(
+                        $"Le défaut pour \"{defaut.Categorie}\" a un montant invalide (inférieur ou égal à 0, NaN ou infini).");
+                }
+
+                if (defaut.MoisCreation < 1 || defaut.MoisCreation > 12)
+                {
+                    throw new InvalidDataException(
+                        $"Le défaut pour \"{defaut.Categorie}\" a un mois de création hors de la plage [1, 12].");
+                }
+
+                if (string.Equals(defaut.Categorie.Trim(), MonthBudget.NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        $"Le défaut pour \"{defaut.Categorie}\" cible la catégorie réservée « Cagnotte ».");
+                }
+
+                // Deux défauts identiques (catégorie + montant) casseraient l'idempotence
+                // de l'application (deux factures identiques produites au lieu d'une).
+                string cle = $"{defaut.Categorie.Trim()}|{defaut.Montant.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}";
+                if (!vus.Add(cle))
+                {
+                    throw new InvalidDataException(
+                        $"Le défaut pour \"{defaut.Categorie}\" au montant {defaut.Montant} est présent plusieurs fois.");
                 }
             }
         }
@@ -372,14 +571,19 @@ public class Budjeckt
                     (mois.Factures ?? Enumerable.Empty<FactureJson>())
                         .Select(facture => facture.IdCategorie == idCategorieCagnotte
                             ? new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, mouvementCagnotte: true)
-                            : new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, facture.Heure)),
+                            : new Facture(facture.Id, facture.IdCategorie, facture.Montant, facture.Date.Date, facture.Heure, facture.EstParDefaut)),
                     annee,
                     mois.MontantCagnotte);
             })
             .ToArray();
 
+        List<FactureParDefaut> defauts = (donnees.FacturesParDefaut ?? Enumerable.Empty<FactureParDefautJson>())
+            .Select(defaut => new FactureParDefaut(defaut.Categorie!, defaut.Montant, defaut.MoisCreation, defaut.Active))
+            .ToList();
+
         _annee = donnees.Annee!;
         _mois = nouveauxMois;
+        _facturesParDefaut = defauts;
     }
 
     /// <summary>
@@ -406,9 +610,19 @@ public class Budjeckt
                             IdCategorie = facture.IdCategorie,
                             Montant = facture.Montant,
                             Date = facture.Date,
-                            Heure = facture.Heure
+                            Heure = facture.Heure,
+                            EstParDefaut = facture.EstParDefaut
                         })
                         .ToList()
+                })
+                .ToList(),
+            FacturesParDefaut = _facturesParDefaut
+                .Select(defaut => new FactureParDefautJson
+                {
+                    Categorie = defaut.NomCategorie,
+                    Montant = defaut.Montant,
+                    MoisCreation = defaut.MoisCreation,
+                    Active = defaut.EstActive
                 })
                 .ToList()
         };

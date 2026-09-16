@@ -40,6 +40,13 @@ public partial class MainViewModel : ObservableObject
     private Tuple<int, string, float>[] _categoriesMois = Array.Empty<Tuple<int, string, float>>();
 
     /// <summary>
+    /// Sous-ensemble de <see cref="_categoriesMois"/> affiché dans le formulaire d'ajout de
+    /// dépense : la catégorie réservée « Cagnotte » en est exclue. Conservé pour résoudre le
+    /// nom et l'id d'une sélection sans désalignement d'index avec la liste complète.
+    /// </summary>
+    private Tuple<int, string, float>[] _categoriesAjoutMois = Array.Empty<Tuple<int, string, float>>();
+
+    /// <summary>
     /// Message d'une action métier ou de sauvegarde en cours d'affichage : conservé jusqu'à
     /// une action réussie, il n'est jamais écrasé par la validation de saisie au clavier.
     /// </summary>
@@ -133,6 +140,14 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Nom de la catégorie à ajouter pour toute l'année (formulaire).</summary>
     [ObservableProperty]
     private string _nouvelleCategorieSaisie = string.Empty;
+
+    /// <summary>
+    /// <c>true</c> si la nouvelle dépense est récurrente (case « Par défaut » du formulaire) :
+    /// elle est alors enregistrée comme facture par défaut, reproduite dans les mois suivants
+    /// jusqu'à sa désactivation (via la suppression de l'une de ses copies).
+    /// </summary>
+    [ObservableProperty]
+    private bool _estFactureParDefaut;
 
     /// <summary>Index de l'option de filtre sélectionnée (0 = toutes les catégories).</summary>
     [ObservableProperty]
@@ -656,7 +671,7 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
 
     private bool PeutAjouterFacture()
     {
-        if (IndexCategorieAjout < 0 || IndexCategorieAjout >= _categoriesMois.Length)
+        if (IndexCategorieAjout < 0 || IndexCategorieAjout >= _categoriesAjoutMois.Length)
         {
             return false;
         }
@@ -688,8 +703,20 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
 
         try
         {
-            int idCategorie = _categoriesMois[IndexCategorieAjout].Item1;
-            MoisCourant.AjouterFacture(idCategorie, montant, DateSaisie, heure);
+            string nomCategorie = _categoriesAjoutMois[IndexCategorieAjout].Item2;
+            int idCategorie = _categoriesAjoutMois[IndexCategorieAjout].Item1;
+
+            // Dépense récurrente : le défaut est enregistré AVANT la création de la facture,
+            // afin qu'un rejet métier (ex. catégorie réservée) ne laisse aucune mutation.
+            // Les mois suivants (de rang supérieur ou égal au mois courant) reproduiront
+            // automatiquement le montant tant que le défaut reste actif.
+            if (EstFactureParDefaut)
+            {
+                _budjeckt.AjouterFactureParDefaut(nomCategorie, montant, IndexMoisSelectionne + 1);
+            }
+
+            MoisCourant.AjouterFacture(idCategorie, montant, DateSaisie, heure, EstFactureParDefaut);
+
             if (Sauvegarder())
             {
                 _erreurAction = string.Empty;
@@ -697,6 +724,7 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
             }
             MontantSaisi = string.Empty;
             HeureSaisie = string.Empty;
+            EstFactureParDefaut = false;
             ActualiserListe();
             ActualiserSynthese();
         }
@@ -712,21 +740,30 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
 
     private bool PeutSupprimerFacture()
     {
-        // La ligne « Total » est une fausse ligne de synthèse : jamais supprimable.
-        return FacturesSelectionnees.Any(ligne => ligne is { EstTotal: false, Source: not null });
+        return FacturesSelectionnees.Any(EstLigneSupprimable);
+    }
+
+    /// <summary>
+    /// Indique si une ligne de l'historique est supprimable : ni la ligne « Total » (synthèse,
+    /// jamais supprimable) ni les mouvements de cagnotte (annulation = opération inverse).
+    /// </summary>
+    private static bool EstLigneSupprimable(ApercuFacture ligne)
+    {
+        return ligne is { EstTotal: false, Source: { EstMouvementCagnotte: false } };
     }
 
     /// <summary>
     /// Supprime définitivement toutes les dépenses sélectionnées (après confirmation), puis
     /// sauvegarde. La sélection multi vient du DataGrid (Shift+clic, Ctrl+clic, cliquer-glisser
-    /// ou touche Suppr) ; la ligne « Total » est systématiquement ignorée. La suppression est
-    /// demandée au backend en un appel (pré-validation transactionnelle avant mutation).
+    /// ou touche Suppr) ; la ligne « Total » et les mouvements de cagnotte sont systématiquement
+    /// ignorés — seules les lignes supprimables sont supprimées. La suppression est demandée au
+    /// backend en un appel (pré-validation transactionnelle avant mutation).
     /// </summary>
     [RelayCommand(CanExecute = nameof(PeutSupprimerFacture))]
     private void SupprimerFacture()
     {
         ApercuFacture[] selection = FacturesSelectionnees
-            .Where(ligne => ligne is { EstTotal: false, Source: not null })
+            .Where(EstLigneSupprimable)
             .ToArray();
         if (selection.Length == 0)
         {
@@ -743,6 +780,26 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
 
         try
         {
+            // Une facture sélectionnée qui matérialise une facture par défaut emporte son
+            // modèle récurrent : le mois courant perd la dépense et les mois suivants ne la
+            // reproduiront plus (« sur celle-ci et les prochaines »). Les mois antérieurs
+            // conservent leurs copies déjà saisies.
+            foreach (Facture facture in selection.Select(ligne => ligne.Source!))
+            {
+                if (!facture.EstParDefaut)
+                {
+                    continue;
+                }
+
+                string? nomCategorie = _categoriesMois
+                    .FirstOrDefault(categorie => categorie.Item1 == facture.IdCategorie)
+                    ?.Item2;
+                if (nomCategorie is not null)
+                {
+                    _budjeckt.DesactiverFactureParDefaut(nomCategorie, facture.Montant);
+                }
+            }
+
             MoisCourant.SupprimerFactures(ids);
             if (Sauvegarder())
             {
@@ -1089,6 +1146,11 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
                 }
             }
 
+            // La catégorie disparaît pour toute l'année : ses factures par défaut sont
+            // désactivées, sinon les mois suivants tenteraient de reproduire une dépense
+            // d'une catégorie qui n'existe plus.
+            _budjeckt.DesactiverFacturesParDefautDeCategorie(nom);
+
             if (Sauvegarder())
             {
                 MessageSucces = totalSupprimees switch
@@ -1120,6 +1182,28 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
     private void ActualiserEtatsMois()
     {
         MonthBudget mois = MoisCourant;
+
+        // Les factures par défaut actives sont matérialisées à la première ouverture de chaque
+        // mois dont le rang est supérieur ou égal à leur création (jamais rétroactivement sur
+        // les mois antérieurs). La sauvegarde rend le résultat permanent dès la navigation.
+        // Même motif défensif que les autres mutations : un échec (ex. débordement float
+        // improbable) affiche l'erreur sans faire planter la navigation.
+        try
+        {
+            if (_budjeckt.AppliquerFacturesParDefaut(mois) > 0)
+            {
+                Sauvegarder();
+            }
+        }
+        catch (ArgumentException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+        catch (InvalidDataException exception)
+        {
+            AfficherErreurAction(exception.Message);
+        }
+
         ActualiserListesCategories(true);
 
         // Le message de succès décrit une action sur l'année affichée : il devient
@@ -1144,8 +1228,15 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
         _categoriesMois = MoisCourant.ExpenseCategories;
         CategoriesDisponibles = _categoriesMois.Length > 0;
 
+        // La catégorie réservée « Cagnotte » est exclue de l'ajout d'une dépense ordinaire
+        // (ses lignes sont créées uniquement par les dépôts/retraits) et de la suppression
+        // (elle est déjà protégée par le backend). Elle reste filtrable dans l'historique,
+        // où ses mouvements signés apparaissent normalement.
+        _categoriesAjoutMois = _categoriesMois
+            .Where(categorie => !EstCategorieCagnotte(categorie.Item2))
+            .ToArray();
         CategoriesAjout.Clear();
-        foreach (Tuple<int, string, float> categorie in _categoriesMois)
+        foreach (Tuple<int, string, float> categorie in _categoriesAjoutMois)
         {
             CategoriesAjout.Add(categorie.Item2);
         }
@@ -1160,7 +1251,10 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
         CategoriesSuppression.Clear();
         foreach (Tuple<int, string, float> categorie in _categoriesMois)
         {
-            CategoriesSuppression.Add(categorie.Item2);
+            if (!EstCategorieCagnotte(categorie.Item2))
+            {
+                CategoriesSuppression.Add(categorie.Item2);
+            }
         }
 
         if (reinitialiserIndices)
@@ -1294,6 +1388,16 @@ catch (Exception exception) when (exception is IOException or UnauthorizedAccess
     {
         return IndexMoisSelectionne + 1 == DateTime.Today.Month
                && MoisCourant.Annee == DateTime.Today.Year;
+    }
+
+    /// <summary>
+    /// Indique si un nom de catégorie correspond à la catégorie réservée « Cagnotte »
+    /// (comparaison insensible à la casse), dont les lignes sont gérées uniquement par les
+    /// dépôts/retraits et jamais par les formulaires de dépense.
+    /// </summary>
+    private static bool EstCategorieCagnotte(string nomCategorie)
+    {
+        return string.Equals(nomCategorie, MonthBudget.NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

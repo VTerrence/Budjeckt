@@ -594,6 +594,65 @@ public class MonthBudgetTests
     }
 
     [TestMethod]
+    public void SupprimerFacture_MouvementCagnotte_LèveArgumentException_SansMutation()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.ChangerRevenue(1000f);
+        mois.MettreDeCote(200f);
+        int idMouvement = mois.Factures.Single(facture => facture.EstMouvementCagnotte).Id;
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerFacture(idMouvement));
+
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(200f, mois.MontantCagnotte, 0.001f, "Le mouvement doit survivre à la tentative de suppression");
+        Assert.AreEqual(800f, mois.BudgetRemaining, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerFactures_MouvementCagnotteSeul_LèveArgumentException_SansMutation()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.ChangerRevenue(1000f);
+        mois.MettreDeCote(200f);
+        int idMouvement = mois.Factures.Single(facture => facture.EstMouvementCagnotte).Id;
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerFactures(new[] { idMouvement }));
+
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(200f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerFactures_MixteAvecMouvementCagnotte_LèveArgumentException_SansAucuneSuppression()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.ChangerRevenue(1000f);
+        mois.AjouterFacture(1, 100f);
+        mois.MettreDeCote(200f);
+        int idMouvement = mois.Factures.Single(facture => facture.EstMouvementCagnotte).Id;
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerFactures(new[] { 1, idMouvement }));
+
+        Assert.HasCount(2, mois.Factures);
+        Assert.AreEqual(300f, mois.TotalExpenses, 0.001f, "Le total (100 de dépense + 200 de dépôt) confirme qu'aucune ligne n'a été supprimée (transactionnel)");
+        Assert.AreEqual(200f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
+    public void SupprimerFactures_DoublonAvecMouvementCagnotte_LèveArgumentException_SansMutation()
+    {
+        var mois = new MonthBudget("Janvier");
+        mois.ChangerRevenue(1000f);
+        mois.MettreDeCote(200f);
+        int idMouvement = mois.Factures.Single(facture => facture.EstMouvementCagnotte).Id;
+
+        Assert.ThrowsExactly<ArgumentException>(() => mois.SupprimerFactures(new[] { idMouvement, idMouvement }));
+
+        Assert.HasCount(1, mois.Factures);
+        Assert.AreEqual(200f, mois.MontantCagnotte, 0.001f);
+    }
+
+    [TestMethod]
     public void ConstructeurComplet_CatégoriesNull_LèveArgumentNullException()
     {
         Assert.ThrowsExactly<ArgumentNullException>(() =>

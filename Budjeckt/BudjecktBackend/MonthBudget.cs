@@ -355,15 +355,34 @@ public class MonthBudget
     /// <param name="montant">Montant de la facture, strictement positif.</param>
     /// <param name="date">Date de la facture, optionnelle.</param>
     /// <param name="heure">Heure de la facture, optionnelle.</param>
-    /// <exception cref="ArgumentException">Si la catégorie n'existe pas, si le montant n'est pas
-    /// strictement positif, si l'heure est invalide, si la date n'appartient pas au mois ou est
-    /// implausible (1900-2100), ou si le nom du mois est inconnu.</exception>
+    /// <param name="estParDefaut">Marque la facture comme reproduction d'une facture par défaut (récurrente).</param>
+    /// <exception cref="ArgumentException">Si la catégorie n'existe pas, si la catégorie est la
+    /// catégorie réservée « Cagnotte » avec <paramref name="estParDefaut"/> à <c>true</c>, si le
+    /// montant n'est pas strictement positif, si l'heure est invalide, si la date n'appartient pas
+    /// au mois ou est implausible (1900-2100), ou si le nom du mois est inconnu. Aucune mutation
+    /// n'est effectuée dans ce cas.</exception>
     /// <exception cref="InvalidDataException">Si la somme des factures déborde de la plage flottante.</exception>
-    public void AjouterFacture(int idCategorie, float montant, DateTime? date, TimeSpan? heure)
+    public void AjouterFacture(int idCategorie, float montant, DateTime? date, TimeSpan? heure, bool estParDefaut = false)
     {
         Validation.VerifierMontantPositif(montant);
         Validation.VerifierCategorieExiste(idCategorie, _expenseCategories.Select(categorie => categorie.Item1));
         Validation.VerifierHeureValide(heure);
+
+        // Les mouvements de cagnotte sont des opérations ponctuelles : aucune facture par défaut
+        // ne peut cibler la catégorie réservée, sans quoi un chargement JSON marquerait un
+        // mouvement de cagnotte comme récurrent (état rejeté par ValiderJson, année bloquée).
+        if (estParDefaut)
+        {
+            Tuple<int, string, float>? categorie = _expenseCategories
+                .FirstOrDefault(categorie => categorie.Item1 == idCategorie);
+
+            if (categorie is not null
+                && string.Equals(categorie.Item2, NomCategorieCagnotte, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "Les mouvements de cagnotte ne peuvent pas être des factures par défaut.", nameof(idCategorie));
+            }
+        }
 
         DateTime dateResolue = ResoudreDate(date);
 
@@ -371,7 +390,7 @@ public class MonthBudget
             ? 1
             : _factures.Max(facture => facture.Id) + 1;
 
-        _factures.Add(new Facture(prochainId, idCategorie, montant, dateResolue, heure));
+        _factures.Add(new Facture(prochainId, idCategorie, montant, dateResolue, heure, estParDefaut));
         RecalculerTotaux();
     }
 
